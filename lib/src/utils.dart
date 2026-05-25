@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-/// High-performance utilities for working with embedding vectors.
+/// 
+typedef _IndexedSimilarity = ({int i, double s});
+
+/// Utilities for working with embedding vectors.
 // ignore: avoid_classes_with_only_static_members
-class Model2VecUtils {
+final class Model2VecUtils {
   /// Calculates the cosine similarity between two vectors.
   ///
   /// Returns a value between -1.0 and 1.0, where 1.0 means the vectors are
@@ -82,21 +85,15 @@ class Model2VecUtils {
     final similarities = <_IndexedSimilarity>[];
     for (var i = 0; i < candidates.length; i++) {
       similarities.add(
-        _IndexedSimilarity(i, cosineSimilarity(query, candidates[i])),
+        (i: i, s: cosineSimilarity(query, candidates[i])),
       );
     }
 
-    similarities.sort((a, b) => b.similarity.compareTo(a.similarity));
+    similarities.sort((a, b) => b.s.compareTo(a.s));
 
     return similarities
         .take(math.min(topK, similarities.length))
-        .map((s) => s.index)
-        .toList();
+        .map((s) => s.i)
+        .toList(growable: false);
   }
-}
-
-class _IndexedSimilarity {
-  _IndexedSimilarity(this.index, this.similarity);
-  final int index;
-  final double similarity;
 }
