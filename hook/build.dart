@@ -17,7 +17,7 @@ void main(List<String> args) async {
     const buildMode = 'release';
     final targetTriple = _mapToTriple(targetOS, targetArch);
 
-    final linkMode = codeConfig.linkModePreference == LinkModePreference.static
+    final linkMode = codeConfig.linkModePreference == .static
         ? StaticLinking()
         : DynamicLoadingBundled();
 

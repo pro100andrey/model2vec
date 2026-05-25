@@ -2,47 +2,104 @@
 
 A Dart wrapper for [model2vec-rs](https://github.com/MinishLab/model2vec-rs) using Rust FFI and Dart Native Assets.
 
+Model2Vec is a technique to create small, fast, and effective text embeddings by distilling knowledge from large language models into a simple vocabulary-based look-up table.
+
 ## Features
 
-- Fast text embeddings using model2vec.
-- Supports loading models from Hugging Face Hub or local path.
-- Supports initializing from memory (bytes).
-- Automatic native library building via `dart run` (Native Assets).
+- **Blazing Fast**: Generate embeddings in microseconds.
+- **Compact**: Models are typically 25MB - 100MB.
+- **Versatile**: Supports loading from Hugging Face, local paths, or memory.
+- **Asynchronous API**: Built-in support for running heavy tasks in background Isolates.
+- **Native Assets**: Automatic building and bundling of the Rust library.
 
 ## Requirements
 
-- Rust toolchain (1.86.0+)
-- Dart SDK 3.12.0+
+- **Rust toolchain**: 1.86.0+ (to build the native library)
+- **Dart SDK**: 3.12.0+
+
+## Installation
+
+Add `model2vec` to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  model2vec: ^0.1.0
+```
 
 ## Usage
 
+### Basic Usage
+
+The simplest way is to use the singleton `Model2Vec.instance`.
+
 ```dart
-import 'dart:ffi';
 import 'package:model2vec/model2vec.dart';
 
 void main() {
-  // Load the library (in a real app, native assets handles this)
-  final lib = DynamicLibrary.open('libm2v_ffi.so');
-  final m2v = Model2Vec(lib);
+  final m2v = Model2Vec.instance;
   
-  // Initialize
+  // Initialize with a model from Hugging Face
   m2v.initEmbedder('minishlab/potion-base-2M');
   
-  // Embed
+  // Generate an embedding
   final embedding = m2v.generateEmbedding('Hello world');
-  print(embedding);
+  print('Vector dimension: ${embedding.length}');
+  print('First 5 elements: ${embedding.sublist(0, 5)}');
+}
+```
+
+### Batch Processing
+
+For multiple strings, use the batch methods for better performance.
+
+```dart
+final texts = ['Hello world', 'Model2Vec is fast', 'Dart + Rust = ❤️'];
+final embeddings = m2v.generateBatchEmbeddings(texts);
+```
+
+### Asynchronous Execution
+
+To avoid blocking the main UI thread (useful in Flutter), use the `Async` variants:
+
+```dart
+final embedding = await m2v.generateEmbeddingAsync('Some long text...');
+```
+
+### Vector Utilities
+
+The package includes high-performance utilities for vector operations.
+
+```dart
+import 'package:model2vec/model2vec.dart';
+
+void main() {
+  final vecA = m2v.generateEmbedding('cat');
+  final vecB = m2v.generateEmbedding('dog');
+  
+  final similarity = Model2VecUtils.cosineSimilarity(vecA, vecB);
+  print('Similarity: $similarity');
 }
 ```
 
 ## Development
 
-To rebuild the native library manually:
+### Building the Native Library
+
+The library uses Dart Native Assets, so it builds automatically during `dart run` or `flutter run`. To build it manually:
+
 ```bash
-cd src
+cd native
 cargo build --release
 ```
 
-To regenerate bindings:
+### Regenerating FFI Bindings
+
+If you modify the Rust C-API (`native/src/lib.rs`), you need to regenerate the Dart bindings:
+
 ```bash
 dart run ffigen
 ```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
