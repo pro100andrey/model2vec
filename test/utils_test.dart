@@ -43,6 +43,26 @@ void main() {
 
       expect(() => Model2VecUtils.cosineSimilarity(a, b), throwsArgumentError);
     });
+
+    test('similaritySearch finds most similar vectors', () {
+      final query = Float32List.fromList([1.0, 0.0]);
+      final candidates = [
+        Float32List.fromList([0.0, 1.0]), // orthogonal
+        Float32List.fromList([0.9, 0.1]), // very similar
+        Float32List.fromList([-1.0, 0.0]), // opposite
+        Float32List.fromList([0.5, 0.5]), // somewhat similar
+      ];
+
+      final results = Model2VecUtils.similaritySearch(
+        query,
+        candidates,
+        topK: 2,
+      );
+
+      expect(results, hasLength(2));
+      expect(results[0], equals(1)); // [0.9, 0.1]
+      expect(results[1], equals(3)); // [0.5, 0.5]
+    });
   });
 
   group('Model2VecUtils - Real World', () {

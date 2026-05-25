@@ -1,6 +1,14 @@
 name: model2vec
-description: A Dart wrapper for model2vec-rs using Rust FFI.
-version: 0.1.0
+description: A Dart wrapper for model2vec-rs using Rust FFI and Native Assets.
+version: 1.0.1
+repository: https://github.com/youruser/model2vec-dart
+homepage: https://github.com/youruser/model2vec-dart
+topics:
+  - machine-learning
+  - embeddings
+  - nlp
+  - rust
+  - ffi
 
 environment:
   sdk: "^3.12.0"

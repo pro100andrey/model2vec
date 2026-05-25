@@ -73,11 +73,19 @@ The package includes high-performance utilities for vector operations.
 import 'package:model2vec/model2vec.dart';
 
 void main() {
-  final vecA = m2v.generateEmbedding('cat');
-  final vecB = m2v.generateEmbedding('dog');
+  final query = m2v.generateEmbedding('cat');
+  final candidates = [
+    m2v.generateEmbedding('dog'),
+    m2v.generateEmbedding('space'),
+    m2v.generateEmbedding('kitten'),
+  ];
   
-  final similarity = Model2VecUtils.cosineSimilarity(vecA, vecB);
-  print('Similarity: $similarity');
+  // Cosine Similarity
+  final similarity = Model2VecUtils.cosineSimilarity(query, candidates[0]);
+  
+  // Similarity Search (Top-K)
+  final topIndices = Model2VecUtils.similaritySearch(query, candidates, topK: 2);
+  print('Top match: ${candidates[topIndices[0]]}');
 }
 ```
 

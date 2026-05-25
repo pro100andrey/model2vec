@@ -6,10 +6,10 @@ import 'dart:typed_data';
 class Model2VecUtils {
   /// Calculates the cosine similarity between two vectors.
   ///
-  /// Returns a value between -1.0 and 1.0, where 1.0 means the vectors are 
+  /// Returns a value between -1.0 and 1.0, where 1.0 means the vectors are
   /// identical.
   ///
-  /// If the vectors are already L2-normalized (which is the default for most 
+  /// If the vectors are already L2-normalized (which is the default for most
   /// Potion models), this is mathematically equivalent to the [dotProduct].
   static double cosineSimilarity(Float32List a, Float32List b) {
     if (a.length != b.length) {
@@ -37,7 +37,7 @@ class Model2VecUtils {
 
   /// Calculates the dot product of two vectors.
   ///
-  /// For L2-normalized vectors, the dot product is equal to the cosine 
+  /// For L2-normalized vectors, the dot product is equal to the cosine
   /// similarity.
   static double dotProduct(Float32List a, Float32List b) {
     if (a.length != b.length) {
@@ -64,4 +64,39 @@ class Model2VecUtils {
     }
     return math.sqrt(sum);
   }
+
+  /// Finds the indices of the top [topK] most similar vectors in [candidates]
+
+  /// to the [query] vector.
+  ///
+  /// Returns a list of indices sorted by similarity (descending).
+  static List<int> similaritySearch(
+    Float32List query,
+    List<Float32List> candidates, {
+    int topK = 5,
+  }) {
+    if (candidates.isEmpty) {
+      return [];
+    }
+
+    final similarities = <_IndexedSimilarity>[];
+    for (var i = 0; i < candidates.length; i++) {
+      similarities.add(
+        _IndexedSimilarity(i, cosineSimilarity(query, candidates[i])),
+      );
+    }
+
+    similarities.sort((a, b) => b.similarity.compareTo(a.similarity));
+
+    return similarities
+        .take(math.min(topK, similarities.length))
+        .map((s) => s.index)
+        .toList();
+  }
+}
+
+class _IndexedSimilarity {
+  _IndexedSimilarity(this.index, this.similarity);
+  final int index;
+  final double similarity;
 }

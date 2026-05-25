@@ -12,12 +12,12 @@ import 'model2vec_bindings.g.dart';
 
 /// The main entry point for the Model2Vec library.
 ///
-/// This class provides methods to initialize the embedder, generate text 
+/// This class provides methods to initialize the embedder, generate text
 /// embeddings, and access model metadata like vocabulary size and dimensions.
 class Model2Vec {
   /// Creates a new instance of [Model2Vec] using the provided [library].
   ///
-  /// In most cases, you should use the shared [instance] instead of 
+  /// In most cases, you should use the shared [instance] instead of
   /// creating a new one manually.
   Model2Vec(DynamicLibrary library) : _bindings = Model2VecBindings(library);
   static Model2Vec? _instance;
@@ -26,7 +26,7 @@ class Model2Vec {
 
   /// Manually initializes the shared [instance] with a specific [library].
   ///
-  /// This is useful if you need to load the native library from a custom 
+  /// This is useful if you need to load the native library from a custom
   /// location or if automatic resolution fails.
   static void boot(DynamicLibrary library) {
     _instance = Model2Vec(library);
@@ -34,8 +34,8 @@ class Model2Vec {
 
   /// A shared singleton instance of [Model2Vec].
   ///
-  /// When accessed for the first time, it attempts to automatically resolve 
-  /// and load the native library using [Platform.isLinux], [Platform.isMacOS], 
+  /// When accessed for the first time, it attempts to automatically resolve
+  /// and load the native library using [Platform.isLinux], [Platform.isMacOS],
   /// and [Platform.isWindows] to determine the correct library filename.
   ///
   /// Throws a [Model2VecException] if the library cannot be found.
@@ -101,7 +101,7 @@ class Model2Vec {
 
   /// Tokenizes the input [text] into a list of strings.
   ///
-  /// Throws a [Model2VecException] if tokenization fails or if no model is 
+  /// Throws a [Model2VecException] if tokenization fails or if no model is
   /// initialized.
   List<String> tokenize(String text) => using((arena) {
     final textPtr = text.toNativeUtf8(allocator: arena);
@@ -119,8 +119,8 @@ class Model2Vec {
 
   /// Initializes a model from a Hugging Face repo ID or a local directory path.
   ///
-  /// [modelPath] can be either a repo ID like 'minishlab/potion-base-8M' 
-  /// or a path to a directory containing `model.safetensors`, `config.json`, 
+  /// [modelPath] can be either a repo ID like 'minishlab/potion-base-8M'
+  /// or a path to a directory containing `model.safetensors`, `config.json`,
   /// and `tokenizer.json`.
   void initEmbedder(String modelPath) {
     initEmbedderAdvanced(modelPath: modelPath);
@@ -157,10 +157,7 @@ class Model2Vec {
       );
 
       if (res != 0) {
-        throw Model2VecException(
-          'Failed to initialize model at "$modelPath".',
-          res,
-        );
+        throw Model2VecException.fromCode(res, 'Initialization failed');
       }
       _cachedDimension = null;
     });
@@ -196,7 +193,10 @@ class Model2Vec {
       );
 
       if (res != 0) {
-        throw Model2VecException('Failed to initialize model from bytes.', res);
+        throw Model2VecException.fromCode(
+          res,
+          'Initialization from bytes failed',
+        );
       }
       _cachedDimension = null;
     });
@@ -219,7 +219,7 @@ class Model2Vec {
   /// Generates a dense vector embedding for the provided [text].
   ///
   /// Returns a [Float32List] representing the text embedding.
-  /// Throws a [Model2VecException] if generation fails or no model is 
+  /// Throws a [Model2VecException] if generation fails or no model is
   /// initialized.
   Float32List generateEmbedding(String text) {
     final dim = embeddingDimension;
@@ -232,7 +232,7 @@ class Model2Vec {
         dim,
       );
       if (res != 0) {
-        throw Model2VecException('Failed to generate embedding for text.', res);
+        throw Model2VecException.fromCode(res, 'Embedding generation failed');
       }
       return Float32List.fromList(outVector.asTypedList(dim));
     });
@@ -264,7 +264,10 @@ class Model2Vec {
         outVectors,
       );
       if (res != 0) {
-        throw Model2VecException('Failed to generate batch embeddings.', res);
+        throw Model2VecException.fromCode(
+          res,
+          'Batch embedding generation failed',
+        );
       }
 
       final results = <Float32List>[];
@@ -284,7 +287,6 @@ class Model2Vec {
   /// Generates batch embeddings asynchronously in a background Isolate.
   Future<List<Float32List>> generateBatchEmbeddingsAsync(List<String> texts) =>
       Isolate.run(() => Model2Vec.instance.generateBatchEmbeddings(texts));
-
 
   static String _resolveLibPath() {
     final libName = Platform.isLinux
