@@ -6,11 +6,25 @@ Model2Vec is a technique to create small, fast, and effective text embeddings by
 
 ## Features
 
-- **Blazing Fast**: Generate embeddings in microseconds.
-- **Compact**: Models are typically 25MB - 100MB.
-- **Versatile**: Supports loading from Hugging Face, local paths, or memory.
-- **Asynchronous API**: Built-in support for running heavy tasks in background Isolates.
-- **Native Assets**: Automatic building and bundling of the Rust library.
+- **Blazing Fast**: The underlying Rust engine is **~1.7x faster** than the official Python implementation, generating embeddings in microseconds.
+- **Compact & Quantized**: Models are typically 25MB - 100MB. Supports `f32`, `f16`, and `i8` quantized models for minimal RAM footprint on mobile devices.
+- **Hugging Face Hub Integration**: Automatically downloads and caches models directly from Hugging Face via `initEmbedder`.
+- **Asynchronous API**: Built-in support for running heavy tasks in background Isolates, preventing UI freezes in Flutter.
+- **Native Assets**: Automatic building and bundling of the Rust library using Dart Native Assets.
+- **Efficient Tokenization**: Uses a highly optimized BPE tokenizer under the hood.
+
+## Recommended Models
+
+Model2Vec provides a variety of pre-trained models optimized for different use cases. These can be loaded by their Hugging Face model ID.
+
+| Model ID | Language | Distilled From | Params | Dimension | Size | Task |
+|----------|----------|----------------|--------|-----------|------|------|
+| [`minishlab/potion-base-32M`](https://huggingface.co/minishlab/potion-base-32M) | English | [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5) | 32.3M | 512 | ~150MB | General |
+| [`minishlab/potion-multilingual-128M`](https://huggingface.co/minishlab/potion-multilingual-128M) | Multi | [bge-m3](https://huggingface.co/BAAI/bge-m3) | 128M | 768 | ~500MB | General |
+| [`minishlab/potion-base-8M`](https://huggingface.co/minishlab/potion-base-8M) | English | [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5) | 7.5M | 384 | ~50MB | General |
+| [`minishlab/potion-base-4M`](https://huggingface.co/minishlab/potion-base-4M) | English | [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5) | 3.7M | 256 | ~30MB | General |
+| [`minishlab/potion-base-2M`](https://huggingface.co/minishlab/potion-base-2M) | English | [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5) | 1.8M | 256 | ~25MB | General |
+| [`minishlab/potion-code-16M`](https://huggingface.co/minishlab/potion-code-16M) | Code | [CodeRankEmbed](https://huggingface.co/nomic-ai/CodeRankEmbed) | 16M | 384 | ~80MB | Code |
 
 ## Requirements
 

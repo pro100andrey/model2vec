@@ -12,17 +12,16 @@ import 'dart:ffi' as ffi;
 class Model2VecBindings {
   /// Holds the symbol lookup function.
   final ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
-      _lookup;
+  _lookup;
 
   /// The symbols are looked up in [dynamicLibrary].
   Model2VecBindings(ffi.DynamicLibrary dynamicLibrary)
-      : _lookup = dynamicLibrary.lookup;
+    : _lookup = dynamicLibrary.lookup;
 
   /// The symbols are looked up with [lookup].
   Model2VecBindings.fromLookup(
-      ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName)
-          lookup)
-      : _lookup = lookup;
+    ffi.Pointer<T> Function<T extends ffi.NativeType>(String symbolName) lookup,
+  ) : _lookup = lookup;
 
   int init_embedder(
     ffi.Pointer<ffi.Char> model_path,
@@ -34,9 +33,10 @@ class Model2VecBindings {
 
   late final _init_embedderPtr =
       _lookup<ffi.NativeFunction<ffi.Int Function(ffi.Pointer<ffi.Char>)>>(
-          'init_embedder');
-  late final _init_embedder =
-      _init_embedderPtr.asFunction<int Function(ffi.Pointer<ffi.Char>)>();
+        'init_embedder',
+      );
+  late final _init_embedder = _init_embedderPtr
+      .asFunction<int Function(ffi.Pointer<ffi.Char>)>();
 
   int init_embedder_advanced(
     ffi.Pointer<ffi.Char> model_path,
@@ -54,17 +54,28 @@ class Model2VecBindings {
     );
   }
 
-  late final _init_embedder_advancedPtr = _lookup<
-      ffi.NativeFunction<
+  late final _init_embedder_advancedPtr =
+      _lookup<
+        ffi.NativeFunction<
           ffi.Int Function(
-              ffi.Pointer<ffi.Char>,
-              ffi.Pointer<ffi.Char>,
-              ffi.Pointer<ffi.Char>,
-              ffi.Int,
-              ffi.Pointer<ffi.Char>)>>('init_embedder_advanced');
-  late final _init_embedder_advanced = _init_embedder_advancedPtr.asFunction<
-      int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Char>,
-          ffi.Pointer<ffi.Char>, int, ffi.Pointer<ffi.Char>)>();
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Int,
+            ffi.Pointer<ffi.Char>,
+          )
+        >
+      >('init_embedder_advanced');
+  late final _init_embedder_advanced = _init_embedder_advancedPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          ffi.Pointer<ffi.Char>,
+        )
+      >();
 
   int init_embedder_from_bytes(
     ffi.Pointer<ffi.UnsignedChar> tokenizer_ptr,
@@ -84,24 +95,30 @@ class Model2VecBindings {
     );
   }
 
-  late final _init_embedder_from_bytesPtr = _lookup<
-      ffi.NativeFunction<
+  late final _init_embedder_from_bytesPtr =
+      _lookup<
+        ffi.NativeFunction<
           ffi.Int Function(
-              ffi.Pointer<ffi.UnsignedChar>,
-              ffi.UnsignedLong,
-              ffi.Pointer<ffi.UnsignedChar>,
-              ffi.UnsignedLong,
-              ffi.Pointer<ffi.UnsignedChar>,
-              ffi.UnsignedLong)>>('init_embedder_from_bytes');
-  late final _init_embedder_from_bytes =
-      _init_embedder_from_bytesPtr.asFunction<
-          int Function(
-              ffi.Pointer<ffi.UnsignedChar>,
-              int,
-              ffi.Pointer<ffi.UnsignedChar>,
-              int,
-              ffi.Pointer<ffi.UnsignedChar>,
-              int)>();
+            ffi.Pointer<ffi.UnsignedChar>,
+            ffi.UnsignedLong,
+            ffi.Pointer<ffi.UnsignedChar>,
+            ffi.UnsignedLong,
+            ffi.Pointer<ffi.UnsignedChar>,
+            ffi.UnsignedLong,
+          )
+        >
+      >('init_embedder_from_bytes');
+  late final _init_embedder_from_bytes = _init_embedder_from_bytesPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<ffi.UnsignedChar>,
+          int,
+          ffi.Pointer<ffi.UnsignedChar>,
+          int,
+          ffi.Pointer<ffi.UnsignedChar>,
+          int,
+        )
+      >();
 
   ffi.Pointer<ffi.Char> get_model_list() {
     return _get_model_list();
@@ -109,9 +126,10 @@ class Model2VecBindings {
 
   late final _get_model_listPtr =
       _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
-          'get_model_list');
-  late final _get_model_list =
-      _get_model_listPtr.asFunction<ffi.Pointer<ffi.Char> Function()>();
+        'get_model_list',
+      );
+  late final _get_model_list = _get_model_listPtr
+      .asFunction<ffi.Pointer<ffi.Char> Function()>();
 
   int get_embedding_dimension() {
     return _get_embedding_dimension();
@@ -119,9 +137,10 @@ class Model2VecBindings {
 
   late final _get_embedding_dimensionPtr =
       _lookup<ffi.NativeFunction<ffi.Int Function()>>(
-          'get_embedding_dimension');
-  late final _get_embedding_dimension =
-      _get_embedding_dimensionPtr.asFunction<int Function()>();
+        'get_embedding_dimension',
+      );
+  late final _get_embedding_dimension = _get_embedding_dimensionPtr
+      .asFunction<int Function()>();
 
   int get_vocabulary_size() {
     return _get_vocabulary_size();
@@ -129,8 +148,8 @@ class Model2VecBindings {
 
   late final _get_vocabulary_sizePtr =
       _lookup<ffi.NativeFunction<ffi.Int Function()>>('get_vocabulary_size');
-  late final _get_vocabulary_size =
-      _get_vocabulary_sizePtr.asFunction<int Function()>();
+  late final _get_vocabulary_size = _get_vocabulary_sizePtr
+      .asFunction<int Function()>();
 
   int is_normalized() {
     return _is_normalized();
@@ -146,9 +165,10 @@ class Model2VecBindings {
 
   late final _get_median_token_lengthPtr =
       _lookup<ffi.NativeFunction<ffi.Int Function()>>(
-          'get_median_token_length');
-  late final _get_median_token_length =
-      _get_median_token_lengthPtr.asFunction<int Function()>();
+        'get_median_token_length',
+      );
+  late final _get_median_token_length = _get_median_token_lengthPtr
+      .asFunction<int Function()>();
 
   ffi.Pointer<ffi.Char> tokenize(
     ffi.Pointer<ffi.Char> text,
@@ -158,9 +178,12 @@ class Model2VecBindings {
     );
   }
 
-  late final _tokenizePtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>>('tokenize');
+  late final _tokenizePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)
+        >
+      >('tokenize');
   late final _tokenize = _tokenizePtr
       .asFunction<ffi.Pointer<ffi.Char> Function(ffi.Pointer<ffi.Char>)>();
 
@@ -176,12 +199,20 @@ class Model2VecBindings {
     );
   }
 
-  late final _generate_embeddingPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Float>,
-              ffi.UnsignedLong)>>('generate_embedding');
-  late final _generate_embedding = _generate_embeddingPtr.asFunction<
-      int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Float>, int)>();
+  late final _generate_embeddingPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Float>,
+            ffi.UnsignedLong,
+          )
+        >
+      >('generate_embedding');
+  late final _generate_embedding = _generate_embeddingPtr
+      .asFunction<
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<ffi.Float>, int)
+      >();
 
   int generate_batch_embeddings(
     ffi.Pointer<ffi.Pointer<ffi.Char>> texts_ptr,
@@ -195,14 +226,24 @@ class Model2VecBindings {
     );
   }
 
-  late final _generate_batch_embeddingsPtr = _lookup<
-      ffi.NativeFunction<
-          ffi.Int Function(ffi.Pointer<ffi.Pointer<ffi.Char>>, ffi.UnsignedLong,
-              ffi.Pointer<ffi.Float>)>>('generate_batch_embeddings');
-  late final _generate_batch_embeddings =
-      _generate_batch_embeddingsPtr.asFunction<
-          int Function(ffi.Pointer<ffi.Pointer<ffi.Char>>, int,
-              ffi.Pointer<ffi.Float>)>();
+  late final _generate_batch_embeddingsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int Function(
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.UnsignedLong,
+            ffi.Pointer<ffi.Float>,
+          )
+        >
+      >('generate_batch_embeddings');
+  late final _generate_batch_embeddings = _generate_batch_embeddingsPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<ffi.Pointer<ffi.Char>>,
+          int,
+          ffi.Pointer<ffi.Float>,
+        )
+      >();
 
   int generate_batch_embeddings_advanced(
     ffi.Pointer<ffi.Pointer<ffi.Char>> texts_ptr,
@@ -220,18 +261,29 @@ class Model2VecBindings {
     );
   }
 
-  late final _generate_batch_embeddings_advancedPtr = _lookup<
-      ffi.NativeFunction<
+  late final _generate_batch_embeddings_advancedPtr =
+      _lookup<
+        ffi.NativeFunction<
           ffi.Int Function(
-              ffi.Pointer<ffi.Pointer<ffi.Char>>,
-              ffi.UnsignedLong,
-              ffi.Pointer<ffi.Float>,
-              ffi.UnsignedLong,
-              ffi.UnsignedLong)>>('generate_batch_embeddings_advanced');
+            ffi.Pointer<ffi.Pointer<ffi.Char>>,
+            ffi.UnsignedLong,
+            ffi.Pointer<ffi.Float>,
+            ffi.UnsignedLong,
+            ffi.UnsignedLong,
+          )
+        >
+      >('generate_batch_embeddings_advanced');
   late final _generate_batch_embeddings_advanced =
-      _generate_batch_embeddings_advancedPtr.asFunction<
-          int Function(ffi.Pointer<ffi.Pointer<ffi.Char>>, int,
-              ffi.Pointer<ffi.Float>, int, int)>();
+      _generate_batch_embeddings_advancedPtr
+          .asFunction<
+            int Function(
+              ffi.Pointer<ffi.Pointer<ffi.Char>>,
+              int,
+              ffi.Pointer<ffi.Float>,
+              int,
+              int,
+            )
+          >();
 
   void free_string(
     ffi.Pointer<ffi.Char> s,
@@ -243,7 +295,8 @@ class Model2VecBindings {
 
   late final _free_stringPtr =
       _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Char>)>>(
-          'free_string');
-  late final _free_string =
-      _free_stringPtr.asFunction<void Function(ffi.Pointer<ffi.Char>)>();
+        'free_string',
+      );
+  late final _free_string = _free_stringPtr
+      .asFunction<void Function(ffi.Pointer<ffi.Char>)>();
 }
