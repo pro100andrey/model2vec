@@ -6,7 +6,7 @@ homepage: https://github.com/pro100andrey/model2vec
 issue_tracker: https://github.com/pro100andrey/model2vec/issues
 
 topics:
-  - machine-learning
+  - rag
   - nlp
   - embeddings
   - tokenizer
