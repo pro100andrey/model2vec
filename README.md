@@ -54,10 +54,16 @@ Add `model2vec` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  model2vec: ^0.1.0
+  model2vec: any
 ```
 
-*Requires **Dart SDK**: 3.12.0+ and **Rust toolchain**: 1.86.0+ (to build the native library via Native Assets).*
+Or add it using the command line:
+
+```bash
+dart pub add model2vec
+```
+
+*Requires **Dart SDK**: 3.10.0+ and **Rust toolchain**: 1.86.0+ (to build the native library via Native Assets).*
 
 ## Quick Start
 

@@ -1,4 +1,7 @@
 <!-- markdownlint-disable-file MD025 -->
+# 1.2.0
+
+- Lowered minimum Dart SDK requirement to `3.10.0` to support a wider range of environments.
 
 # 1.1.0
 
