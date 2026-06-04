@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
@@ -20,7 +21,9 @@ class Model2Vec {
   /// In most cases, you should use the shared [instance] instead of
   /// creating a new one manually.
   Model2Vec(DynamicLibrary library) : _bindings = Model2VecBindings(library);
+
   static Model2Vec? _instance;
+
   final Model2VecBindings _bindings;
   int? _cachedDimension;
 
@@ -43,13 +46,20 @@ class Model2Vec {
     if (_instance != null) {
       return _instance!;
     }
+
+    final libPath = _resolveLibPath();
     try {
-      final library = DynamicLibrary.open(_resolveLibPath());
+      final library = DynamicLibrary.open(libPath);
       _instance = Model2Vec(library);
+
       return _instance!;
     } catch (e) {
       throw Model2VecException(
-        'Failed to auto-load Model2Vec native library: $e',
+        'Failed to auto-load Model2Vec native library "$libPath".\n'
+        'Please ensure you have built the Rust library '
+        '(cd native && cargo build --release)\n'
+        'or that the shared object is placed in a system library path.\n'
+        'Underlying error: $e',
       );
     }
   }
@@ -61,13 +71,16 @@ class Model2Vec {
     if (_cachedDimension != null) {
       return _cachedDimension!;
     }
+
     final dim = _bindings.get_embedding_dimension();
     if (dim <= 0) {
       throw const Model2VecException(
         'No model initialized. Call initEmbedder() before accessing dimension.',
       );
     }
+
     _cachedDimension = dim;
+
     return dim;
   }
 
@@ -81,6 +94,7 @@ class Model2Vec {
         'Failed to get vocabulary size. Is a model initialized?',
       );
     }
+
     return size;
   }
 
@@ -93,9 +107,11 @@ class Model2Vec {
   /// Throws a [Model2VecException] if no model has been initialized yet.
   int get medianTokenLength {
     final length = _bindings.get_median_token_length();
+
     if (length < 0) {
       throw const Model2VecException('Failed to get median token length.');
     }
+
     return length;
   }
 
@@ -106,12 +122,14 @@ class Model2Vec {
   List<String> tokenize(String text) => using((arena) {
     final textPtr = text.toNativeUtf8(allocator: arena);
     final resPtr = _bindings.tokenize(textPtr.cast<Char>());
+
     if (resPtr == nullptr) {
       throw const Model2VecException('Tokenization failed.');
     }
+
     try {
       final jsonString = resPtr.cast<Utf8>().toDartString();
-      return List<String>.from(json.decode(jsonString) as List);
+      return .from(json.decode(jsonString) as List);
     } finally {
       _bindings.free_string(resPtr);
     }
@@ -122,9 +140,8 @@ class Model2Vec {
   /// [modelPath] can be either a repo ID like 'minishlab/potion-base-8M'
   /// or a path to a directory containing `model.safetensors`, `config.json`,
   /// and `tokenizer.json`.
-  void initEmbedder(String modelPath) {
-    initEmbedderAdvanced(modelPath: modelPath);
-  }
+  void initEmbedder(String modelPath) =>
+      initEmbedderAdvanced(modelPath: modelPath);
 
   /// Advanced model initialization with additional options.
   ///
@@ -159,6 +176,7 @@ class Model2Vec {
       if (res != 0) {
         throw Model2VecException.fromCode(res, 'Initialization failed');
       }
+
       _cachedDimension = null;
     });
   }
@@ -198,55 +216,109 @@ class Model2Vec {
           'Initialization from bytes failed',
         );
       }
+
       _cachedDimension = null;
     });
   }
 
   /// Returns a list of officially recommended Potion models from Hugging Face.
-  List<Map<String, dynamic>> getRecommendedModels() {
-    final ptr = _bindings.get_model_list();
-    if (ptr == nullptr) {
-      return [];
-    }
-    try {
-      final jsonString = ptr.cast<Utf8>().toDartString();
-      return List<Map<String, dynamic>>.from(json.decode(jsonString) as List);
-    } finally {
-      _bindings.free_string(ptr);
-    }
-  }
+  List<Map<String, dynamic>> getRecommendedModels() => [
+    {
+      'id': 'minishlab/potion-base-2M',
+      'name': 'Potion Base 2M',
+      'lang': 'English',
+      'params': '1.8M',
+      'description': 'Smallest English model, very fast.',
+    },
+    {
+      'id': 'minishlab/potion-base-4M',
+      'name': 'Potion Base 4M',
+      'lang': 'English',
+      'params': '3.7M',
+      'description': 'Small and efficient English model.',
+    },
+    {
+      'id': 'minishlab/potion-base-8M',
+      'name': 'Potion Base 8M',
+      'lang': 'English',
+      'params': '7.5M',
+      'description': 'Balanced English model.',
+    },
+    {
+      'id': 'minishlab/potion-base-32M',
+      'name': 'Potion Base 32M',
+      'lang': 'English',
+      'params': '32.3M',
+      'description': 'Large and accurate English model.',
+    },
+    {
+      'id': 'minishlab/potion-retrieval-32M',
+      'name': 'Potion Retrieval 32M',
+      'lang': 'English',
+      'params': '32.3M',
+      'description': 'Optimized specifically for RAG and retrieval tasks.',
+    },
+    {
+      'id': 'minishlab/potion-code-16M',
+      'name': 'Potion Code 16M',
+      'lang': 'Code',
+      'params': '16M',
+      'description': 'Optimized for code retrieval and analysis.',
+    },
+    {
+      'id': 'minishlab/potion-multilingual-128M',
+      'name': 'Potion Multilingual 128M',
+      'lang': 'Multilingual (101)',
+      'params': '128M',
+      'description': 'Best for multi-language tasks.',
+    },
+  ];
 
   /// Generates a dense vector embedding for the provided [text].
+  ///
+  /// - [maxLength]: Maximum number of tokens to keep before truncating.
   ///
   /// Returns a [Float32List] representing the text embedding.
   /// Throws a [Model2VecException] if generation fails or no model is
   /// initialized.
-  Float32List generateEmbedding(String text) {
+  Float32List generateEmbedding(String text, {int maxLength = 512}) {
     final dim = embeddingDimension;
     return using((arena) {
-      final textPtr = text.toNativeUtf8(allocator: arena);
+      final textPtr = text.toNativeUtf8(allocator: arena).cast<Char>();
       final outVector = arena<Float>(dim);
+
       final res = _bindings.generate_embedding(
-        textPtr.cast<Char>(),
+        textPtr,
         outVector,
-        dim,
+        maxLength,
       );
+
       if (res != 0) {
         throw Model2VecException.fromCode(res, 'Embedding generation failed');
       }
-      return Float32List.fromList(outVector.asTypedList(dim));
+
+      return .fromList(outVector.asTypedList(dim));
     });
   }
 
   /// Generates embeddings for multiple [texts] in a highly optimized batch
   /// call.
   ///
+  /// - [maxLength]: Maximum number of tokens to keep before truncating.
+  /// - [batchSize]: Size of the internal batches sent to the model for
+  /// inference.
+  ///
   /// Returns a list of [Float32List], one for each input text.
   /// Throws a [Model2VecException] if generation fails.
-  List<Float32List> generateBatchEmbeddings(List<String> texts) {
+  List<Float32List> generateBatchEmbeddings(
+    List<String> texts, {
+    int maxLength = 512,
+    int batchSize = 1024,
+  }) {
     if (texts.isEmpty) {
       return [];
     }
+
     final dim = embeddingDimension;
     final count = texts.length;
 
@@ -258,11 +330,14 @@ class Model2Vec {
         textPointers[i] = texts[i].toNativeUtf8(allocator: arena).cast<Char>();
       }
 
-      final res = _bindings.generate_batch_embeddings(
+      final res = _bindings.generate_batch_embeddings_advanced(
         textPointers,
         count,
         outVectors,
+        maxLength,
+        batchSize,
       );
+
       if (res != 0) {
         throw Model2VecException.fromCode(
           res,
@@ -274,19 +349,179 @@ class Model2Vec {
       final flatData = outVectors.asTypedList(count * dim);
       for (var i = 0; i < count; i++) {
         final start = i * dim;
-        results.add(Float32List.fromList(flatData.sublist(start, start + dim)));
+        results.add(.fromList(flatData.sublist(start, start + dim)));
       }
+
       return results;
     });
   }
 
   /// Generates an embedding vector asynchronously in a background Isolate.
-  Future<Float32List> generateEmbeddingAsync(String text) =>
-      Isolate.run(() => Model2Vec.instance.generateEmbedding(text));
+  Future<Float32List> generateEmbeddingAsync(
+    String text, {
+    int maxLength = 512,
+  }) => Isolate.run(
+    () => Model2Vec.instance.generateEmbedding(
+      text,
+      maxLength: maxLength,
+    ),
+  );
 
   /// Generates batch embeddings asynchronously in a background Isolate.
-  Future<List<Float32List>> generateBatchEmbeddingsAsync(List<String> texts) =>
-      Isolate.run(() => Model2Vec.instance.generateBatchEmbeddings(texts));
+  Future<List<Float32List>> generateBatchEmbeddingsAsync(
+    List<String> texts, {
+    int maxLength = 512,
+    int batchSize = 1024,
+  }) => Isolate.run(
+    () => Model2Vec.instance.generateBatchEmbeddings(
+      texts,
+      maxLength: maxLength,
+      batchSize: batchSize,
+    ),
+  );
+
+  /// Consumes a stream of [texts] and yields a stream of embeddings.
+  ///
+  /// The stream is buffered into batches of [batchSize] to maximize throughput.
+  ///
+  /// By default, [useIsolate] is `true`, which runs the heavy FFI computations
+  /// in a single background worker isolate, preventing the main thread from
+  /// stuttering. This is ideal for Flutter applications or processing millions
+  /// of rows.
+  ///
+  /// **Performance Warning for CLI / Server:**
+  /// If you are writing a pure Dart CLI or server application where blocking
+  /// the main thread is acceptable (or if you already manage your own isolate
+  /// pool),  setting `useIsolate: false` will eliminate Inter-Process
+  /// Communication (IPC) overhead, avoiding unnecessary serialization of
+  /// strings and Float32Lists between isolates, making generation up to 2x
+  /// faster for small batches.
+  Stream<Float32List> generateEmbeddingStream(
+    Stream<String> texts, {
+    int batchSize = 1024,
+    int maxLength = 512,
+    bool useIsolate = true,
+  }) async* {
+    if (!useIsolate) {
+      var buffer = <String>[];
+      Stream<Float32List> flushBuffer(List<String> batch) async* {
+        final results = generateBatchEmbeddings(
+          batch,
+          maxLength: maxLength,
+          batchSize: batch.length,
+        );
+
+        for (final res in results) {
+          yield res;
+        }
+      }
+
+      await for (final text in texts) {
+        buffer.add(text);
+
+        if (buffer.length >= batchSize) {
+          final currentBatch = buffer;
+          buffer = <String>[];
+          yield* flushBuffer(currentBatch);
+        }
+      }
+
+      if (buffer.isNotEmpty) {
+        yield* flushBuffer(buffer);
+      }
+
+      return;
+    }
+
+    final mainReceivePort = ReceivePort();
+    Isolate? isolate;
+    SendPort? workerSendPort;
+    StreamSubscription<dynamic>? sub;
+
+    try {
+      isolate = await .spawn(_streamWorker, mainReceivePort.sendPort);
+      var pendingRequest = Completer<dynamic>();
+
+      sub = mainReceivePort.listen((message) {
+        pendingRequest.complete(message);
+      });
+
+      final firstMessage = await pendingRequest.future;
+      if (firstMessage is SendPort) {
+        workerSendPort = firstMessage;
+      } else {
+        throw StateError('Worker isolate failed to initialize');
+      }
+
+      var buffer = <String>[];
+
+      Stream<Float32List> flushBuffer(List<String> batch) async* {
+        pendingRequest = Completer<dynamic>();
+        workerSendPort!.send((
+          batch: batch,
+          maxLength: maxLength,
+        ));
+
+        final message = await pendingRequest.future;
+        if (message is List<Float32List>) {
+          for (final res in message) {
+            yield res;
+          }
+        } else if (message is String && message.startsWith('ERROR:')) {
+          throw Model2VecException(message);
+        } else {
+          throw StateError('Unexpected response from worker isolate: $message');
+        }
+      }
+
+      await for (final text in texts) {
+        buffer.add(text);
+
+        if (buffer.length >= batchSize) {
+          final currentBatch = buffer;
+          buffer = <String>[];
+          yield* flushBuffer(currentBatch);
+        }
+      }
+
+      if (buffer.isNotEmpty) {
+        yield* flushBuffer(buffer);
+      }
+    } finally {
+      if (workerSendPort != null) {
+        workerSendPort.send('close');
+      }
+
+      isolate?.kill();
+      await sub?.cancel();
+      mainReceivePort.close();
+    }
+  }
+
+  static void _streamWorker(SendPort mainSendPort) {
+    final workerReceivePort = ReceivePort();
+    mainSendPort.send(workerReceivePort.sendPort);
+
+    workerReceivePort.listen((message) {
+      if (message == 'close') {
+        workerReceivePort.close();
+        return;
+      }
+
+      try {
+        final data = message as ({List<String> batch, int maxLength});
+
+        final results = Model2Vec.instance.generateBatchEmbeddings(
+          data.batch,
+          maxLength: data.maxLength,
+          batchSize: data.batch.length,
+        );
+        mainSendPort.send(results);
+      } on Object catch (e) {
+        mainSendPort.send('ERROR: $e');
+      }
+    });
+  }
 
   static String _resolveLibPath() {
     final libName = Platform.isLinux

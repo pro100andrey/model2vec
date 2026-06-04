@@ -3,61 +3,94 @@ import 'dart:io';
 import 'package:benchmark_harness/benchmark_harness.dart';
 import 'package:model2vec/model2vec.dart';
 
-class EmbeddingBenchmark extends BenchmarkBase {
-  EmbeddingBenchmark(this.modelId, this.text)
-    : super('Single Embedding($modelId)');
+const testText =
+    'The quick brown fox jumps over the lazy dog. Model2Vec is a fast and '
+    'small model for text embeddings.';
 
-  final String modelId;
-  final String text;
+late List<String> batchTexts;
+
+class EmbeddingBenchmark extends BenchmarkBase {
+  EmbeddingBenchmark() : super('Single');
+
   late Model2Vec m2v;
 
   @override
   void setup() {
     m2v = Model2Vec.instance;
-    m2v.initEmbedder(modelId);
   }
 
   @override
   void run() {
-    m2v.generateEmbedding(text);
+    m2v.generateEmbedding(testText);
   }
 }
 
 class BatchEmbeddingBenchmark extends BenchmarkBase {
-  BatchEmbeddingBenchmark(this.modelId, this.texts)
-    : super('Batch Embedding($modelId, size=${texts.length})');
+  BatchEmbeddingBenchmark() : super('Batch (32)');
 
-  final String modelId;
-  final List<String> texts;
   late Model2Vec m2v;
 
   @override
   void setup() {
     m2v = Model2Vec.instance;
-    m2v.initEmbedder(modelId);
   }
 
   @override
   void run() {
-    m2v.generateBatchEmbeddings(texts);
+    m2v.generateBatchEmbeddings(batchTexts);
   }
 }
 
 void main() {
-  const testText =
-      'The quick brown fox jumps over the lazy dog. '
-      'Model2Vec is a fast and small model for text embeddings.';
+  batchTexts = List.generate(32, (i) => '$testText #$i');
 
-  final batchTexts = List.generate(32, (i) => '$testText #$i');
-
-  final modelId =
-      Platform.environment['BENCH_MODEL'] ?? 'minishlab/potion-base-2M';
+  final models = [
+    'minishlab/potion-base-2M',
+    'minishlab/potion-base-4M',
+    'minishlab/potion-base-8M',
+    'minishlab/potion-base-32M',
+    'minishlab/potion-multilingual-128M',
+  ];
 
   stdout
     ..writeln('=== Model2Vec Performance Benchmark ===')
-    ..writeln('Target Model: $modelId')
-    ..writeln('Input text length: ${testText.length} chars');
+    ..writeln(
+      'Warming up models (Downloading to cache, this may take a while)...',
+    );
 
-  EmbeddingBenchmark(modelId, testText).report();
-  BatchEmbeddingBenchmark(modelId, batchTexts).report();
+  final m2v = Model2Vec.instance;
+  for (final model in models) {
+    stdout.write('Warming up $model... ');
+    final watch = Stopwatch()..start();
+    m2v.initEmbedder(model);
+    watch.stop();
+    stdout.writeln('Done in ${watch.elapsedMilliseconds} ms.');
+  }
+
+  stdout
+    ..writeln('\n--- Benchmark Results ---')
+    ..writeln(
+      '| Model | Load Time (Cache) | Single Embedding | Batch (32) |',
+    )
+    ..writeln('|---|---|---|---|');
+
+  for (final model in models) {
+    // Measure Load Time (Already cached)
+    final watch = Stopwatch()..start();
+    m2v.initEmbedder(model);
+    watch.stop();
+    final loadTime = '${watch.elapsedMilliseconds} ms';
+
+    // Measure Single Embedding
+    final singleBench = EmbeddingBenchmark();
+    final singleScore = singleBench.measure(); // Microseconds per run
+    final singleStr = '${singleScore.toStringAsFixed(1)} μs';
+
+    // Measure Batch Embedding
+    final batchBench = BatchEmbeddingBenchmark();
+    final batchScore = batchBench.measure(); // Microseconds per run
+    final batchStr = '${(batchScore / 1000).toStringAsFixed(2)} ms';
+
+    stdout.writeln('| `$model` | $loadTime | $singleStr | $batchStr |');
+  }
 }

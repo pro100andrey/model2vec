@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:model2vec/model2vec.dart';
 
 /// Example demonstrating production-ready usage of the Model2Vec package.
-void main() {
+Future<void> main() async {
   try {
     // 1. Initialize the API via shared instance
     final m2v = Model2Vec.instance;
@@ -63,7 +63,45 @@ void main() {
       stdout.writeln('  - Result $i length: ${batch[i].length}');
     }
 
-    stdout.writeln('\n🎉 All operations completed successfully.');
+    // 9. Vector Math & Semantic Search
+    stdout.writeln('\n🧠 Vector Math & Semantic Search:');
+    final query = m2v.generateEmbedding('A cute little kitten');
+    final db = [
+      m2v.generateEmbedding('A small cat'),
+      m2v.generateEmbedding('A big dog'),
+      m2v.generateEmbedding('Space exploration'),
+    ];
+
+    final simCat = Model2VecUtils.cosineSimilarity(query, db[0]);
+    final simSpace = Model2VecUtils.cosineSimilarity(query, db[2]);
+    stdout
+      ..writeln(
+        '  - Sim(kitten, cat):   ${(simCat * 100).toStringAsFixed(1)}%',
+      )
+      ..writeln(
+        '  - Sim(kitten, space): ${(simSpace * 100).toStringAsFixed(1)}%',
+      );
+
+    final topMatch = Model2VecUtils.similaritySearch(query, db, topK: 1);
+    stdout
+      ..writeln('  - Best match index:   ${topMatch.first}')
+      // 10. Streaming API for Huge Datasets
+      ..writeln('\n🌊 Streaming API (1000 items):');
+    final stream = Stream.fromIterable(List.generate(1000, (i) => 'Item $i'));
+    final resultStream = m2v.generateEmbeddingStream(
+      stream,
+      batchSize: 200,
+    );
+
+    var count = 0;
+    await for (final _ in resultStream) {
+      count++;
+    }
+    stdout
+      ..writeln(
+        '  - Successfully streamed and processed $count embeddings.',
+      )
+      ..writeln('\n🎉 All operations completed successfully.');
   } on Model2VecException catch (e) {
     stdout.writeln('\n❌ Model2Vec Error: ${e.message}');
     if (e.code != null) {

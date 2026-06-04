@@ -1,6 +1,6 @@
 name: model2vec
 description: A high-performance Dart wrapper for model2vec-rs using Rust FFI. Generate fast, local, and static text embeddings with minimal memory footprint using Native Assets.
-version: 1.0.0
+version: 1.1.0
 repository: https://github.com/pro100andrey/model2vec
 homepage: https://github.com/pro100andrey/model2vec
 issue_tracker: https://github.com/pro100andrey/model2vec/issues

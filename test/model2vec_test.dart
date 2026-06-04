@@ -100,6 +100,53 @@ void main() {
       });
     });
 
+    group('Streaming API', () {
+      test('processes a stream of texts and yields embeddings', () async {
+        // Create a synthetic stream of 2500 strings
+        const totalItems = 2500;
+        final stream = Stream.fromIterable(
+          Iterable.generate(totalItems, (i) => 'This is test string number $i'),
+        );
+
+        final resultStream = m2v.generateEmbeddingStream(
+          stream,
+          batchSize: 1000,
+        );
+
+        final results = await resultStream.toList();
+
+        expect(results.length, equals(totalItems));
+        expect(results.first.length, equals(m2v.embeddingDimension));
+      });
+
+      test('works correctly with useIsolate: false', () async {
+        final stream = Stream.fromIterable(['Text 1', 'Text 2', 'Text 3']);
+        final results = await m2v
+            .generateEmbeddingStream(
+              stream,
+              batchSize: 2,
+              useIsolate: false,
+            )
+            .toList();
+
+        expect(results.length, equals(3));
+      });
+
+      test('canceling stream early works cleanly', () async {
+        final stream = Stream.fromIterable([
+          'Text 1',
+          'Text 2',
+          'Text 3',
+          'Text 4',
+        ]);
+        final resultStream = m2v.generateEmbeddingStream(stream, batchSize: 2);
+
+        // Take only 2 elements, which will cancel the subscription early
+        final firstTwo = await resultStream.take(2).toList();
+        expect(firstTwo.length, 2);
+      });
+    });
+
     group('Model Switching', () {
       test('can switch between different models successfully', () {
         // Switch to 8M model (dimension 256)
@@ -113,6 +160,26 @@ void main() {
     });
 
     group('Advanced Features', () {
+      test('supports advanced parameters maxLength and batchSize', () {
+        const text =
+            'A very long sentence to test truncation with maxLength parameter';
+        // With very short maxLength, the embedding should be different from
+        // default
+        final defaultEmbedding = m2v.generateEmbedding(text);
+        final shortEmbedding = m2v.generateEmbedding(text, maxLength: 2);
+
+        expect(defaultEmbedding, isNot(orderedEquals(shortEmbedding)));
+
+        final batchEmbedding = m2v.generateBatchEmbeddings(
+          [text, text],
+          maxLength: 2,
+          batchSize: 1,
+        );
+        expect(batchEmbedding.length, 2);
+        expect(batchEmbedding[0], orderedEquals(shortEmbedding));
+        expect(batchEmbedding[1], orderedEquals(shortEmbedding));
+      });
+
       test('supports custom cache directory', () {
         final tempDir = Directory.systemTemp.createTempSync('m2v_cache_');
         try {

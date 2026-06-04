@@ -17,8 +17,6 @@ int init_embedder_from_bytes(
     unsigned long config_len
 );
 
-char* get_model_list();
-
 int get_embedding_dimension();
 
 int get_vocabulary_size();
