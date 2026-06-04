@@ -63,6 +63,104 @@ void main() {
       expect(results[0], equals(1)); // [0.9, 0.1]
       expect(results[1], equals(3)); // [0.5, 0.5]
     });
+
+    test('similaritySearchWithThreshold works correctly', () {
+      final query = Float32List.fromList([1.0, 0.0]);
+      final candidates = [
+        Float32List.fromList([0.0, 1.0]), // sim: 0.0
+        Float32List.fromList([0.9, 0.1]), // sim: ~0.99
+        Float32List.fromList([-1.0, 0.0]), // sim: -1.0
+        Float32List.fromList([0.5, 0.5]), // sim: 0.707
+      ];
+
+      final results = Model2VecUtils.similaritySearchWithThreshold(
+        query,
+        candidates,
+        threshold: 0.8,
+      );
+
+      expect(results, hasLength(1));
+      expect(results[0], equals(1)); // only [0.9, 0.1] passes 0.8
+    });
+
+    test('cosineDistance calculates correctly', () {
+      final a = Float32List.fromList([1.0, 0.0]);
+      final b = Float32List.fromList([0.0, 1.0]);
+      expect(Model2VecUtils.cosineDistance(a, a), closeTo(0.0, 1e-6));
+      expect(Model2VecUtils.cosineDistance(a, b), closeTo(1.0, 1e-6));
+    });
+
+    test('normalize works correctly', () {
+      final a = Float32List.fromList([3.0, 4.0]);
+      final normalized = Model2VecUtils.normalize(a);
+
+      expect(normalized[0], closeTo(0.6, 1e-6));
+      expect(normalized[1], closeTo(0.8, 1e-6));
+      expect(
+        Model2VecUtils.euclideanDistance(
+          normalized,
+          Float32List.fromList([0, 0]),
+        ),
+        closeTo(1.0, 1e-6),
+      );
+    });
+
+    test('meanPooling averages correctly', () {
+      final a = Float32List.fromList([1.0, 2.0]);
+      final b = Float32List.fromList([3.0, 4.0]);
+      final c = Float32List.fromList([5.0, 6.0]);
+
+      final mean = Model2VecUtils.meanPooling([a, b, c]);
+      expect(mean[0], closeTo(3.0, 1e-6));
+      expect(mean[1], closeTo(4.0, 1e-6));
+    });
+
+    test('quantizeToInt8 scales correctly', () {
+      final vector = Float32List.fromList([1.0, 0.5, -0.5, -1.0]);
+      final quantized = Model2VecUtils.quantizeToInt8(vector);
+
+      expect(quantized[0], equals(127));
+      expect(quantized[1], equals(64));
+      expect(quantized[2], equals(-64)); // -0.5 * 127 = -63.5 -> -64
+      expect(quantized[3], equals(-127));
+    });
+
+    test('Base64 serialization works bidirectionally', () {
+      final vector = Float32List.fromList([0.1, 0.2, -0.3, 100.5]);
+      final base64 = Model2VecUtils.toBase64(vector);
+      final restored = Model2VecUtils.fromBase64(base64);
+
+      expect(restored.length, equals(vector.length));
+      for (var i = 0; i < vector.length; i++) {
+        expect(restored[i], equals(vector[i]));
+      }
+    });
+
+    test('pairwiseSimilarity calculates matrix correctly', () {
+      final listA = [
+        Float32List.fromList([1.0, 0.0]),
+        Float32List.fromList([0.0, 1.0]),
+      ];
+      final listB = [
+        Float32List.fromList([1.0, 0.0]),
+        Float32List.fromList([0.0, 1.0]),
+        Float32List.fromList([0.707, 0.707]),
+      ];
+
+      final result = Model2VecUtils.pairwiseSimilarity(listA, listB);
+      expect(result.length, 2);
+      expect(result[0].length, 3);
+
+      // listA[0] vs listB
+      expect(result[0][0], closeTo(1.0, 1e-6));
+      expect(result[0][1], closeTo(0.0, 1e-6));
+      expect(result[0][2], closeTo(0.707106, 1e-4));
+
+      // listA[1] vs listB
+      expect(result[1][0], closeTo(0.0, 1e-6));
+      expect(result[1][1], closeTo(1.0, 1e-6));
+      expect(result[1][2], closeTo(0.707106, 1e-4));
+    });
   });
 
   group('Model2VecUtils - Real World', () {

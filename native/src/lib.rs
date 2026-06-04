@@ -85,34 +85,7 @@ pub extern "C" fn init_embedder_from_bytes(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn get_model_list() -> *mut c_char {
-    let list = serde_json::json!([
-        {
-            "id": "minishlab/potion-base-2M",
-            "name": "Potion Base 2M",
-            "lang": "English",
-            "params": "1.8M",
-            "description": "Smallest English model, very fast."
-        },
-        {
-            "id": "minishlab/potion-base-8M",
-            "name": "Potion Base 8M",
-            "lang": "English",
-            "params": "7.5M",
-            "description": "Balanced English model."
-        },
-        {
-            "id": "minishlab/potion-multilingual-128M",
-            "name": "Potion Multilingual 128M",
-            "lang": "Multilingual (101)",
-            "params": "128M",
-            "description": "Best for multi-language tasks."
-        }
-    ]);
-    let s = list.to_string();
-    CString::new(s).unwrap().into_raw()
-}
+
 
 fn load_model_advanced(
     path: &str, 
@@ -180,8 +153,29 @@ pub extern "C" fn tokenize(text: *const c_char) -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn generate_embedding(text: *const c_char, out_vector: *mut f32, _max_len: usize) -> i32 {
-    generate_batch_embeddings_advanced(&text, 1, out_vector, 512, 1)
+pub extern "C" fn generate_embedding(text: *const c_char, out_vector: *mut f32, max_length: usize) -> i32 {
+    let model_lock = match MODEL.read() {
+        Ok(lock) => lock,
+        Err(_) => return -4,
+    };
+    let model = match model_lock.as_ref() {
+        Some(m) => m,
+        None => return -1,
+    };
+
+    if text.is_null() || out_vector.is_null() { return -2; }
+
+    let text_str = unsafe { CStr::from_ptr(text).to_string_lossy().into_owned() };
+    let results = model.encode_with_args(&[text_str], Some(max_length), 1);
+    
+    if let Some(embedding) = results.first() {
+        unsafe {
+            ptr::copy_nonoverlapping(embedding.as_ptr(), out_vector, model.dim());
+        }
+        0
+    } else {
+        -5 // Embedding generation resulted in empty array
+    }
 }
 
 #[no_mangle]
@@ -219,6 +213,11 @@ pub extern "C" fn generate_batch_embeddings_advanced(
 
     let results = model.encode_with_args(&texts, Some(max_length), batch_size);
     let dim = model.dim();
+
+    if results.len() != count {
+        return -5; // Generation failed or mismatched count
+    }
+
     for (i, embedding) in results.iter().enumerate() {
         unsafe {
             let target_ptr = out_vectors.add(i * dim);

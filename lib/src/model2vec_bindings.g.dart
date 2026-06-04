@@ -120,17 +120,6 @@ class Model2VecBindings {
         )
       >();
 
-  ffi.Pointer<ffi.Char> get_model_list() {
-    return _get_model_list();
-  }
-
-  late final _get_model_listPtr =
-      _lookup<ffi.NativeFunction<ffi.Pointer<ffi.Char> Function()>>(
-        'get_model_list',
-      );
-  late final _get_model_list = _get_model_listPtr
-      .asFunction<ffi.Pointer<ffi.Char> Function()>();
-
   int get_embedding_dimension() {
     return _get_embedding_dimension();
   }
