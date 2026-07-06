@@ -225,13 +225,15 @@ impl StaticModel {
         sentences: &[String],
         max_length: Option<usize>,
         batch_size: usize,
-    ) -> Vec<Vec<f32>> {
+    ) -> Result<Vec<Vec<f32>>> {
         let mut embeddings = Vec::with_capacity(sentences.len());
         for batch in sentences.chunks(batch_size) {
             let truncated: Vec<&str> = batch.iter().map(|text| {
                 max_length.map(|max_tok| Self::truncate_str(text, max_tok, self.median_token_length)).unwrap_or(text.as_str())
             }).collect();
-            let encodings = self.tokenizer.encode_batch_fast::<String>(truncated.into_iter().map(Into::into).collect(), false).expect("tokenization failed");
+            let encodings = self.tokenizer
+                .encode_batch_fast::<String>(truncated.into_iter().map(Into::into).collect(), false)
+                .map_err(|e| anyhow!("tokenization failed: {e}"))?;
             for encoding in encodings {
                 let mut token_ids = encoding.get_ids().to_vec();
                 if let Some(unk_id) = self.unk_token_id {
@@ -243,17 +245,20 @@ impl StaticModel {
                 embeddings.push(self.pool_ids(token_ids));
             }
         }
-        embeddings
+        Ok(embeddings)
     }
 
     #[allow(dead_code)]
-    pub fn encode(&self, sentences: &[String]) -> Vec<Vec<f32>> {
+    pub fn encode(&self, sentences: &[String]) -> Result<Vec<Vec<f32>>> {
         self.encode_with_args(sentences, Some(512), 1024)
     }
 
     #[allow(dead_code)]
     pub fn encode_single(&self, sentence: &str) -> Vec<f32> {
-        self.encode(&[sentence.to_string()]).into_iter().next().unwrap_or_default()
+        self.encode(&[sentence.to_string()])
+            .ok()
+            .and_then(|v| v.into_iter().next())
+            .unwrap_or_default()
     }
 
     fn pool_ids(&self, ids: Vec<u32>) -> Vec<f32> {

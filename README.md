@@ -71,18 +71,25 @@ dart pub add model2vec
 import 'package:model2vec/model2vec.dart';
 
 void main() {
-  final m2v = Model2Vec.instance;
-  
+  // Model2Vec is a stateless namespace of static methods — there is one
+  // active model per process, loaded automatically via Native Assets.
+
   // Initialize with a model from Hugging Face
-  m2v.initEmbedder('minishlab/potion-base-2M');
-  
+  Model2Vec.initEmbedder('minishlab/potion-base-2M');
+
   // Generate an embedding
-  final embedding = m2v.generateEmbedding('Dart FFI is blazingly fast 🚀');
-  
-  print('Vector dimension: ${m2v.embeddingDimension}');
-  print('Vocabulary size: ${m2v.vocabularySize}');
+  final embedding = Model2Vec.generateEmbedding('Dart FFI is blazingly fast 🚀');
+
+  print('Vector dimension: ${Model2Vec.embeddingDimension}');
+  print('Vocabulary size: ${Model2Vec.vocabularySize}');
 }
 ```
+
+> **Migrating from 1.x?** The instance API is gone. Replace
+> `Model2Vec.instance.foo(...)` with `Model2Vec.foo(...)`, drop any
+> `Model2Vec.boot(...)` / `Model2Vec(lib)` calls (library resolution is now
+> automatic), and read `Model2Vec.recommendedModels` instead of calling
+> `getRecommendedModels()`. See the [CHANGELOG](CHANGELOG.md) for the full list.
 
 ## Recipes & Patterns
 
@@ -93,7 +100,7 @@ Process multiple strings at once for maximum hardware utilization. You can contr
 ```dart
 final texts = ['Dart', 'Rust', 'Flutter'];
 
-final embeddings = m2v.generateBatchEmbeddings(
+final embeddings = Model2Vec.generateBatchEmbeddings(
   texts,
   maxLength: 256,   // Truncate strings longer than 256 tokens
   batchSize: 1024,  // Internal chunks sent to the FFI layer
@@ -115,7 +122,7 @@ Future<void> processHugeFile() async {
       .transform(const LineSplitter());
 
   // Converts a Stream<String> into a Stream<Float32List>
-  final embeddingStream = m2v.generateEmbeddingStream(
+  final embeddingStream = Model2Vec.generateEmbeddingStream(
     fileStream,
     batchSize: 500, // Process 500 strings at a time
     useIsolate: true, // Run math in background threads
@@ -132,8 +139,8 @@ Future<void> processHugeFile() async {
 Never block the main thread. If you are building a Flutter app, always use the `Async` variants to perform generation in a background `Isolate`.
 
 ```dart
-final embedding = await m2v.generateEmbeddingAsync('A very long text...');
-final batch = await m2v.generateBatchEmbeddingsAsync(['A', 'B', 'C']);
+final embedding = await Model2Vec.generateEmbeddingAsync('A very long text...');
+final batch = await Model2Vec.generateBatchEmbeddingsAsync(['A', 'B', 'C']);
 ```
 
 ### 4. Vector Math & Quantization
@@ -141,10 +148,10 @@ final batch = await m2v.generateBatchEmbeddingsAsync(['A', 'B', 'C']);
 The library ships with `Model2VecUtils` — a powerful suite of math operations tuned for embeddings.
 
 ```dart
-final query = m2v.generateEmbedding('cat');
+final query = Model2Vec.generateEmbedding('cat');
 final candidates = [
-  m2v.generateEmbedding('dog'),
-  m2v.generateEmbedding('space'),
+  Model2Vec.generateEmbedding('dog'),
+  Model2Vec.generateEmbedding('space'),
 ];
 
 // 1. Semantic Similarity (Cosine)
@@ -174,7 +181,7 @@ final base64String = Model2VecUtils.toBase64(query);
 | `initEmbedder(path)` | Initializes the model from a Hugging Face repo ID or local path. |
 | `initEmbedderAdvanced(...)` | Advanced initialization with custom `cacheDirectory`, `hfToken`, or `normalize` overrides. |
 | `initEmbedderFromBytes(...)` | Initializes the model directly from raw `Uint8List` bytes (`model.safetensors`, `tokenizer.json`, etc). |
-| `getRecommendedModels()` | Returns a list of officially supported models. |
+| `recommendedModels` | A typed `List<RecommendedModel>` catalog of officially recommended Potion models (offline). |
 | `tokenize(text)` | Runs the internal BPE tokenizer and returns a `List<String>`. |
 | `generateEmbedding(text)` | Synchronously generates a `Float32List` embedding vector. |
 | `generateBatchEmbeddings(texts)` | Synchronously generates embeddings for a `List<String>` using Rust SIMD. |

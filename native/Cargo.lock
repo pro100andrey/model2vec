@@ -711,7 +711,6 @@ dependencies = [
  "hf-hub",
  "libc",
  "ndarray",
- "once_cell",
  "safetensors",
  "serde",
  "serde_json",

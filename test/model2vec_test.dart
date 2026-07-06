@@ -4,39 +4,33 @@ import 'package:model2vec/model2vec.dart';
 import 'package:test/test.dart';
 
 void main() {
-  late Model2Vec m2v;
-
-  setUpAll(() {
-    m2v = Model2Vec.instance;
-  });
-
   group('Model2Vec Production Tests', () {
     test('Successful initialization (online)', () {
-      // This MUST be the first init call in the process due to Rust's OnceCell
+      // Must be the first init call so later tests have a loaded model.
       expect(
-        () => m2v.initEmbedder('minishlab/potion-base-2M'),
+        () => Model2Vec.initEmbedder('minishlab/potion-base-2M'),
         returnsNormally,
       );
     });
 
     group('Model Metadata', () {
       test('returns valid dimension and metadata', () {
-        expect(m2v.embeddingDimension, equals(64));
-        expect(m2v.vocabularySize, greaterThan(20000));
-        expect(m2v.isNormalized, isTrue);
-        expect(m2v.medianTokenLength, isPositive);
+        expect(Model2Vec.embeddingDimension, equals(64));
+        expect(Model2Vec.vocabularySize, greaterThan(20000));
+        expect(Model2Vec.isNormalized, isTrue);
+        expect(Model2Vec.medianTokenLength, isPositive);
       });
     });
 
     group('Tokenization', () {
       test('breaks text into tokens correctly', () {
-        final tokens = m2v.tokenize('Dart FFI is powerful');
+        final tokens = Model2Vec.tokenize('Dart FFI is powerful');
         expect(tokens, isNotEmpty);
         expect(tokens, contains('dart'));
       });
 
       test('handles empty string tokenization', () {
-        final tokens = m2v.tokenize('');
+        final tokens = Model2Vec.tokenize('');
         expect(tokens, isEmpty);
       });
     });
@@ -45,8 +39,8 @@ void main() {
       test(
         'generates vector of correct length and exact values (snapshot)',
         () {
-          final vector = m2v.generateEmbedding('Hello world');
-          expect(vector.length, equals(m2v.embeddingDimension));
+          final vector = Model2Vec.generateEmbedding('Hello world');
+          expect(vector.length, equals(Model2Vec.embeddingDimension));
 
           // Exact values for Potion Base 2M on "Hello world"
           // Using closeTo to handle minor floating point precision differences
@@ -58,8 +52,8 @@ void main() {
 
       test('batch embedding is consistent with single embedding', () {
         const text = 'Consistency check';
-        final single = m2v.generateEmbedding(text);
-        final batch = m2v.generateBatchEmbeddings([text]);
+        final single = Model2Vec.generateEmbedding(text);
+        final batch = Model2Vec.generateBatchEmbeddings([text]);
 
         expect(batch.length, 1);
         expect(batch[0], orderedEquals(single));
@@ -72,31 +66,31 @@ void main() {
           '12345 !? @#',
           'Теж має працювати',
         ];
-        final results = m2v.generateBatchEmbeddings(texts);
+        final results = Model2Vec.generateBatchEmbeddings(texts);
         expect(results.length, equals(texts.length));
         for (final v in results) {
-          expect(v.length, equals(m2v.embeddingDimension));
+          expect(v.length, equals(Model2Vec.embeddingDimension));
         }
       });
 
       test('batch with empty list returns empty list', () {
-        expect(m2v.generateBatchEmbeddings([]), isEmpty);
+        expect(Model2Vec.generateBatchEmbeddings([]), isEmpty);
       });
     });
 
     group('Asynchronous API', () {
       test('generates embedding asynchronously in isolate', () async {
-        final vector = await m2v.generateEmbeddingAsync('Async test');
-        expect(vector.length, equals(m2v.embeddingDimension));
+        final vector = await Model2Vec.generateEmbeddingAsync('Async test');
+        expect(vector.length, equals(Model2Vec.embeddingDimension));
       });
 
       test('generates batch embeddings asynchronously in isolate', () async {
-        final results = await m2v.generateBatchEmbeddingsAsync([
+        final results = await Model2Vec.generateBatchEmbeddingsAsync([
           'Async 1',
           'Async 2',
         ]);
         expect(results.length, 2);
-        expect(results[0].length, m2v.embeddingDimension);
+        expect(results[0].length, Model2Vec.embeddingDimension);
       });
     });
 
@@ -108,7 +102,7 @@ void main() {
           Iterable.generate(totalItems, (i) => 'This is test string number $i'),
         );
 
-        final resultStream = m2v.generateEmbeddingStream(
+        final resultStream = Model2Vec.generateEmbeddingStream(
           stream,
           batchSize: 1000,
         );
@@ -116,18 +110,16 @@ void main() {
         final results = await resultStream.toList();
 
         expect(results.length, equals(totalItems));
-        expect(results.first.length, equals(m2v.embeddingDimension));
+        expect(results.first.length, equals(Model2Vec.embeddingDimension));
       });
 
       test('works correctly with useIsolate: false', () async {
         final stream = Stream.fromIterable(['Text 1', 'Text 2', 'Text 3']);
-        final results = await m2v
-            .generateEmbeddingStream(
-              stream,
-              batchSize: 2,
-              useIsolate: false,
-            )
-            .toList();
+        final results = await Model2Vec.generateEmbeddingStream(
+          stream,
+          batchSize: 2,
+          useIsolate: false,
+        ).toList();
 
         expect(results.length, equals(3));
       });
@@ -139,7 +131,10 @@ void main() {
           'Text 3',
           'Text 4',
         ]);
-        final resultStream = m2v.generateEmbeddingStream(stream, batchSize: 2);
+        final resultStream = Model2Vec.generateEmbeddingStream(
+          stream,
+          batchSize: 2,
+        );
 
         // Take only 2 elements, which will cancel the subscription early
         final firstTwo = await resultStream.take(2).toList();
@@ -150,12 +145,12 @@ void main() {
     group('Model Switching', () {
       test('can switch between different models successfully', () {
         // Switch to 8M model (dimension 256)
-        m2v.initEmbedder('minishlab/potion-base-8M');
-        expect(m2v.embeddingDimension, equals(256));
+        Model2Vec.initEmbedder('minishlab/potion-base-8M');
+        expect(Model2Vec.embeddingDimension, equals(256));
 
         // Switch back to 2M model (dimension 64)
-        m2v.initEmbedder('minishlab/potion-base-2M');
-        expect(m2v.embeddingDimension, equals(64));
+        Model2Vec.initEmbedder('minishlab/potion-base-2M');
+        expect(Model2Vec.embeddingDimension, equals(64));
       });
     });
 
@@ -165,12 +160,12 @@ void main() {
             'A very long sentence to test truncation with maxLength parameter';
         // With very short maxLength, the embedding should be different from
         // default
-        final defaultEmbedding = m2v.generateEmbedding(text);
-        final shortEmbedding = m2v.generateEmbedding(text, maxLength: 2);
+        final defaultEmbedding = Model2Vec.generateEmbedding(text);
+        final shortEmbedding = Model2Vec.generateEmbedding(text, maxLength: 2);
 
         expect(defaultEmbedding, isNot(orderedEquals(shortEmbedding)));
 
-        final batchEmbedding = m2v.generateBatchEmbeddings(
+        final batchEmbedding = Model2Vec.generateBatchEmbeddings(
           [text, text],
           maxLength: 2,
           batchSize: 1,
@@ -185,7 +180,7 @@ void main() {
         try {
           // Now that switching is enabled, this should return normally
           expect(
-            () => m2v.initEmbedderAdvanced(
+            () => Model2Vec.initEmbedderAdvanced(
               modelPath: 'minishlab/potion-base-2M',
               cacheDirectory: tempDir.path,
             ),
@@ -198,10 +193,12 @@ void main() {
     });
 
     group('Recommended Models', () {
-      test('returns a non-empty list of maps', () {
-        final models = m2v.getRecommendedModels();
-        expect(models, isNotEmpty);
-        expect(models.first, contains('id'));
+      test('exposes a non-empty typed catalog', () {
+        expect(Model2Vec.recommendedModels, isNotEmpty);
+        expect(
+          Model2Vec.recommendedModels.first.id,
+          startsWith('minishlab/'),
+        );
       });
     });
   });

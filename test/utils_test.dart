@@ -164,16 +164,14 @@ void main() {
   });
 
   group('Model2VecUtils - Real World', () {
-    late Model2Vec m2v;
-
     setUpAll(() {
-      m2v = Model2Vec.instance..initEmbedder('minishlab/potion-base-2M');
+      Model2Vec.initEmbedder('minishlab/potion-base-2M');
     });
 
     test('semantic similarity makes sense', () {
-      final vCat = m2v.generateEmbedding('A small cute cat');
-      final vKitten = m2v.generateEmbedding('A young little kitten');
-      final vSpace = m2v.generateEmbedding(
+      final vCat = Model2Vec.generateEmbedding('A small cute cat');
+      final vKitten = Model2Vec.generateEmbedding('A young little kitten');
+      final vSpace = Model2Vec.generateEmbedding(
         'The exploration of outer space and planets',
       );
 
@@ -197,11 +195,15 @@ void main() {
     });
 
     test('task similarity example', () {
-      final vTask1 = m2v.generateEmbedding('Fix the login bug in production');
-      final vTask2 = m2v.generateEmbedding(
+      final vTask1 = Model2Vec.generateEmbedding(
+        'Fix the login bug in production',
+      );
+      final vTask2 = Model2Vec.generateEmbedding(
         'Resolve authentication issue on server',
       );
-      final vTask3 = m2v.generateEmbedding('Order pizza for the team lunch');
+      final vTask3 = Model2Vec.generateEmbedding(
+        'Order pizza for the team lunch',
+      );
 
       final sim12 = Model2VecUtils.cosineSimilarity(vTask1, vTask2);
       final sim13 = Model2VecUtils.cosineSimilarity(vTask1, vTask3);

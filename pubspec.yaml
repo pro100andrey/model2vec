@@ -1,6 +1,6 @@
 name: model2vec
 description: A high-performance Dart wrapper for model2vec-rs using Rust FFI. Generate fast, local, and static text embeddings with minimal memory footprint using Native Assets.
-version: 1.2.0
+version: 2.0.0
 repository: https://github.com/pro100andrey/model2vec
 homepage: https://github.com/pro100andrey/model2vec
 issue_tracker: https://github.com/pro100andrey/model2vec/issues
@@ -31,9 +31,13 @@ ffigen:
   name: Model2VecBindings
   description: Bindings for model2vec-rs.
   output: "lib/src/model2vec_bindings.g.dart"
+  ffi-native:
+    asset-id: "package:model2vec/model2vec.so"
   headers:
     entry-points:
       - "native/model2vec.h"
+    include-directives:
+      - "**/model2vec.h"
   preamble: |
     // ignore_for_file: always_specify_types
     // ignore_for_file: camel_case_types
