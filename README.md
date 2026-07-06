@@ -185,17 +185,22 @@ Build a searchable, persistable index of your documents entirely on-device — c
 // 1. Split long documents into overlapping passages
 final passages = chunkText(document, maxChars: 800, overlap: 100);
 
-// 2. Embed and index them (int8 storage cuts memory ~4x)
+// 2. Embed and index them, keeping each passage as the entry's payload so a
+//    hit carries its text directly (int8 storage cuts memory ~4x)
 final index = EmbeddingIndex(quantized: true);
 for (var i = 0; i < passages.length; i++) {
-  index.add('passage-$i', Model2Vec.generateEmbedding(passages[i]));
+  index.add(
+    'passage-$i',
+    Model2Vec.generateEmbedding(passages[i]),
+    payload: passages[i],
+  );
 }
 
-// 3. Query — returns SearchResult(id, score), most similar first
+// 3. Query — returns SearchResult(id, score, payload), most similar first
 final query = Model2Vec.generateEmbedding('How do I reset my password?');
 final hits = index.search(query, topK: 5);
 for (final hit in hits) {
-  print('${hit.id}: ${hit.score.toStringAsFixed(3)}');
+  print('${hit.score.toStringAsFixed(3)}  ${hit.payload}');
 }
 
 // 4. Persist to disk and reload later

@@ -35,18 +35,20 @@ Future<void> main() async {
     //    purpose-built; potion-base-8M is a lighter, still-capable choice.
     Model2Vec.initEmbedder('minishlab/potion-base-8M');
 
-    // 2. Chunk each article and index the passages. The index stores id ->
-    //    vector; we keep our own id -> text map to show the passage behind a
-    //    hit (the index deliberately does not store the text).
+    // 2. Chunk each article and index the passages. We store the passage text
+    //    as the entry's payload, so a hit carries its document directly — no
+    //    parallel id -> text map to keep in sync.
     final index = EmbeddingIndex();
-    final passages = <String, String>{};
 
     for (final article in _knowledgeBase.entries) {
       final chunks = chunkText(article.value, maxChars: 160, overlap: 32);
       for (var i = 0; i < chunks.length; i++) {
         final id = '${article.key}#$i';
-        passages[id] = chunks[i];
-        index.add(id, Model2Vec.generateEmbedding(chunks[i]));
+        index.add(
+          id,
+          Model2Vec.generateEmbedding(chunks[i]),
+          payload: chunks[i],
+        );
       }
     }
     stdout.writeln(
@@ -66,7 +68,7 @@ Future<void> main() async {
       stdout.writeln('Q: $question');
       for (final hit in index.search(query, topK: 2)) {
         final score = hit.score.toStringAsFixed(3);
-        stdout.writeln('  [$score] ${hit.id}: ${passages[hit.id]}');
+        stdout.writeln('  [$score] ${hit.id}: ${hit.payload}');
       }
       stdout.writeln();
     }
@@ -83,7 +85,7 @@ Future<void> main() async {
     //    avoid near-duplicate passages in the top results.
     final broad = index.search(twoFa, topK: 6);
     final candidateVectors = [
-      for (final hit in broad) Model2Vec.generateEmbedding(passages[hit.id]!),
+      for (final hit in broad) Model2Vec.generateEmbedding(hit.payload!),
     ];
     final order = Model2VecUtils.maximalMarginalRelevance(
       twoFa,

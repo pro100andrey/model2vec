@@ -3,11 +3,11 @@ import 'dart:typed_data';
 
 import 'utils.dart';
 
-/// A single hit from [EmbeddingIndex.search]: the stored entry's id and its
-/// similarity to the query.
+/// A single hit from [EmbeddingIndex.search]: the stored entry's id, its
+/// similarity to the query, and the payload stored alongside it (if any).
 final class SearchResult {
   /// Creates a search hit.
-  const SearchResult(this.id, this.score);
+  const SearchResult(this.id, this.score, {this.payload});
 
   /// The id the vector was stored under.
   final String id;
@@ -15,16 +15,28 @@ final class SearchResult {
   /// Cosine similarity to the query, in `[-1.0, 1.0]`.
   final double score;
 
+  /// The document stored with the vector via `add(..., payload: ...)`, or
+  /// `null` when the entry was added without one.
+  final String? payload;
+
   @override
   String toString() => 'SearchResult($id, ${score.toStringAsFixed(4)})';
 }
 
+/// One stored entry: the vector (a `Float32List`, or an `Int8List` when the
+/// index is quantized) and its optional payload.
+typedef _Entry = ({Object vector, String? payload});
+
 /// An in-memory index of embeddings for local semantic search / retrieval.
 ///
 /// Store vectors by id with [add], then query the nearest ones with [search].
+/// Attach an optional [String] payload to each entry — e.g. the source passage
+/// behind the vector — so [search] hands back the document directly instead of
+/// just its id, with no parallel id→text map to keep in sync.
+///
 /// Set `quantized: true` to keep vectors int8-quantized (~4x less memory, at a
-/// small accuracy cost). Persist the whole index with [toBytes] and restore it
-/// with [EmbeddingIndex.fromBytes].
+/// small accuracy cost). Persist the whole index (payloads included) with
+/// [toBytes] and restore it with [EmbeddingIndex.fromBytes].
 ///
 /// This is a pure data structure — it never touches the native model, so it is
 /// fully testable with hand-made vectors.
@@ -34,9 +46,9 @@ class EmbeddingIndex {
 
   final bool _quantized;
 
-  // id -> stored vector (Float32List, or Int8List when quantized). Insertion
-  // order is preserved, which keeps [toBytes] output stable.
-  final _store = <String, Object>{};
+  // id -> stored entry (vector + optional payload). Insertion order is
+  // preserved, which keeps [toBytes] output stable.
+  final _store = <String, _Entry>{};
   int? _dimension;
 
   /// Number of stored vectors.
@@ -59,14 +71,18 @@ class EmbeddingIndex {
 
   /// Stores [vector] under [id], replacing any existing entry for that id.
   ///
-  /// Throws [ArgumentError] if [vector]'s length differs from the vectors
-  /// already in the index.
-  void add(String id, Float32List vector) {
+  /// Optionally attach a [payload] (e.g. the source text) that [search] will
+  /// return with the hit. Throws [ArgumentError] if [vector]'s length differs
+  /// from the vectors already in the index.
+  void add(String id, Float32List vector, {String? payload}) {
     _checkDimension(vector.length);
     _dimension = vector.length;
-    _store[id] = _quantized
-        ? Model2VecUtils.quantizeToInt8(vector)
-        : Float32List.fromList(vector);
+    _store[id] = (
+      vector: _quantized
+          ? Model2VecUtils.quantizeToInt8(vector)
+          : Float32List.fromList(vector),
+      payload: payload,
+    );
   }
 
   /// Stores every entry in [entries]. See [add].
@@ -129,9 +145,13 @@ class EmbeddingIndex {
     }
     final results = <SearchResult>[];
     for (final entry in _store.entries) {
-      final vector = _asFloat32(entry.value);
+      final vector = _asFloat32(entry.value.vector);
       results.add(
-        SearchResult(entry.key, Model2VecUtils.cosineSimilarity(query, vector)),
+        SearchResult(
+          entry.key,
+          Model2VecUtils.cosineSimilarity(query, vector),
+          payload: entry.value.payload,
+        ),
       );
     }
     return results;
@@ -152,18 +172,29 @@ class EmbeddingIndex {
   // --- persistence ---------------------------------------------------------
 
   static const _magic = 'M2VI';
-  static const _version = 1;
+  static const _version = 2;
 
-  /// Serializes the whole index to a compact binary blob. Restore it with
-  /// [EmbeddingIndex.fromBytes].
+  // Per-entry payload length sentinel meaning "no payload" (distinct from a
+  // zero-length, i.e. empty-string, payload).
+  static const _noPayload = 0xFFFFFFFF;
+
+  /// Serializes the whole index — vectors and payloads — to a compact binary
+  /// blob. Restore it with [EmbeddingIndex.fromBytes].
   Uint8List toBytes() {
     final dim = _dimension ?? 0;
     final elemBytes = _quantized ? 1 : 4;
 
     final idByteList = _store.keys.map(utf8.encode).toList(growable: false);
+    // Null payload is encoded via the _noPayload sentinel (no trailing bytes).
+    final payloadByteList = _store.values
+        .map((e) => e.payload == null ? null : utf8.encode(e.payload!))
+        .toList(growable: false);
+
     var size = 4 + 1 + 1 + 4 + 4; // magic + version + flags + dim + count
-    for (final idBytes in idByteList) {
-      size += 4 + idBytes.length + dim * elemBytes; // u32 idLen + id + vector
+    for (var i = 0; i < idByteList.length; i++) {
+      // u32 idLen + id + vector + u32 payloadLen + payload
+      size += 4 + idByteList[i].length + dim * elemBytes;
+      size += 4 + (payloadByteList[i]?.length ?? 0);
     }
 
     final bytes = Uint8List(size);
@@ -183,23 +214,33 @@ class EmbeddingIndex {
 
     var e = 0;
     for (final stored in _store.values) {
-      final idBytes = idByteList[e++];
+      final idBytes = idByteList[e];
       data.setUint32(o, idBytes.length, Endian.little);
       o += 4;
       bytes.setRange(o, o + idBytes.length, idBytes);
       o += idBytes.length;
       if (_quantized) {
-        final q = stored as Int8List;
+        final q = stored.vector as Int8List;
         for (var i = 0; i < dim; i++) {
           data.setInt8(o, q[i]);
           o += 1;
         }
       } else {
-        final f = stored as Float32List;
+        final f = stored.vector as Float32List;
         for (var i = 0; i < dim; i++) {
           data.setFloat32(o, f[i], Endian.little);
           o += 4;
         }
+      }
+      final payloadBytes = payloadByteList[e++];
+      if (payloadBytes == null) {
+        data.setUint32(o, _noPayload, Endian.little);
+        o += 4;
+      } else {
+        data.setUint32(o, payloadBytes.length, Endian.little);
+        o += 4;
+        bytes.setRange(o, o + payloadBytes.length, payloadBytes);
+        o += payloadBytes.length;
       }
     }
     return bytes;
@@ -240,9 +281,11 @@ class EmbeddingIndex {
 
     final version = data.getUint8(o);
     o += 1;
-    if (version != _version) {
+    // v1 has no payload section; v2 adds a payload per entry. Both still read.
+    if (version != 1 && version != 2) {
       throw ArgumentError('unsupported EmbeddingIndex version $version');
     }
+    final hasPayloads = version >= 2;
     final quantized = data.getUint8(o) == 1;
     o += 1;
     final dim = data.getUint32(o, Endian.little);
@@ -256,21 +299,32 @@ class EmbeddingIndex {
       o += 4;
       final id = utf8.decode(bytes.sublist(o, o + idLen));
       o += idLen;
+      final Object vector;
       if (quantized) {
         final q = Int8List(dim);
         for (var i = 0; i < dim; i++) {
           q[i] = data.getInt8(o);
           o += 1;
         }
-        index._store[id] = q;
+        vector = q;
       } else {
         final f = Float32List(dim);
         for (var i = 0; i < dim; i++) {
           f[i] = data.getFloat32(o, Endian.little);
           o += 4;
         }
-        index._store[id] = f;
+        vector = f;
       }
+      String? payload;
+      if (hasPayloads) {
+        final payloadLen = data.getUint32(o, Endian.little);
+        o += 4;
+        if (payloadLen != _noPayload) {
+          payload = utf8.decode(bytes.sublist(o, o + payloadLen));
+          o += payloadLen;
+        }
+      }
+      index._store[id] = (vector: vector, payload: payload);
     }
     index._dimension = count > 0 ? dim : null;
     return index;

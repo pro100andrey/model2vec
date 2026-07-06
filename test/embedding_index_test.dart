@@ -147,5 +147,75 @@ void main() {
       final index = EmbeddingIndex()..add('a', _v([1, 0]));
       expect(index.search(_v([1, 0]), topK: -1), isEmpty);
     });
+
+    group('payload', () {
+      test('search returns the payload stored with each vector', () {
+        final index = EmbeddingIndex()
+          ..add('a', _v([1, 0, 0]), payload: 'alpha')
+          ..add('b', _v([0, 1, 0]), payload: 'beta');
+
+        final hits = index.search(_v([1, 0, 0]), topK: 1);
+        expect(hits.single.id, 'a');
+        expect(hits.single.payload, 'alpha');
+      });
+
+      test('an entry added without a payload has a null payload', () {
+        final index = EmbeddingIndex()..add('a', _v([1, 0, 0]));
+        expect(index.search(_v([1, 0, 0])).single.payload, isNull);
+      });
+
+      test('payloads survive toBytes/fromBytes round-trip', () {
+        final index = EmbeddingIndex()
+          ..add('a', _v([1, 0, 0]), payload: 'alpha')
+          ..add('b', _v([0, 1, 0])); // no payload
+
+        final restored = EmbeddingIndex.fromBytes(index.toBytes());
+        final byId = {
+          for (final r in restored.search(_v([1, 0, 0]), topK: 2))
+            r.id: r.payload,
+        };
+        expect(byId['a'], 'alpha');
+        expect(byId['b'], isNull);
+      });
+
+      test('an empty-string payload round-trips distinct from null', () {
+        final index = EmbeddingIndex()
+          ..add('empty', _v([1, 0]), payload: '')
+          ..add('none', _v([0, 1]));
+
+        final restored = EmbeddingIndex.fromBytes(index.toBytes());
+        final byId = {
+          for (final r in restored.search(_v([1, 0]), topK: 2)) r.id: r.payload,
+        };
+        expect(byId['empty'], '');
+        expect(byId['none'], isNull);
+      });
+
+      test('quantized index carries payloads too', () {
+        final index = EmbeddingIndex(quantized: true)
+          ..add('a', _v([1, 0, 0]), payload: 'alpha');
+        final restored = EmbeddingIndex.fromBytes(index.toBytes());
+        expect(restored.search(_v([1, 0, 0])).single.payload, 'alpha');
+      });
+
+      test('a v1 blob (no payload section) still decodes', () {
+        // Golden v1 blob: one entry id='a', dim=2, float [1,0], not quantized.
+        final v1 = Uint8List.fromList([
+          0x4D, 0x32, 0x56, 0x49, // magic 'M2VI'
+          0x01, // version 1
+          0x00, // flags: not quantized
+          0x02, 0x00, 0x00, 0x00, // dim = 2
+          0x01, 0x00, 0x00, 0x00, // count = 1
+          0x01, 0x00, 0x00, 0x00, // idLen = 1
+          0x61, // 'a'
+          0x00, 0x00, 0x80, 0x3F, // 1.0f little-endian
+          0x00, 0x00, 0x00, 0x00, // 0.0f
+        ]);
+        final index = EmbeddingIndex.fromBytes(v1);
+        expect(index.length, 1);
+        expect(index.contains('a'), isTrue);
+        expect(index.search(_v([1, 0])).single.payload, isNull);
+      });
+    });
   });
 }
