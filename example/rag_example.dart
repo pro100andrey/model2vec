@@ -33,7 +33,7 @@ Future<void> main() async {
 
     // 1. Load an embedding model. For real retrieval, potion-retrieval-32M is
     //    purpose-built; potion-base-8M is a lighter, still-capable choice.
-    Model2Vec.initEmbedder('minishlab/potion-base-8M');
+    Model2Vec.loadModel('minishlab/potion-base-8M');
 
     // 2. Chunk each article and index the passages. We store the passage text
     //    as the entry's payload, so a hit carries its document directly — no

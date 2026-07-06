@@ -3,7 +3,7 @@
 /// Values mirror the stable error codes the Rust layer returns, so callers can
 /// branch exhaustively with a `switch` instead of matching magic numbers.
 enum Model2VecErrorKind {
-  /// No model has been initialized yet (call `initEmbedder` first).
+  /// No model has been initialized yet (call `loadModel` first).
   notInitialized,
 
   /// A model could not be loaded from the given repo id or path.

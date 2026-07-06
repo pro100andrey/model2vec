@@ -18,7 +18,7 @@ Future<void> main() async {
     const modelId = 'minishlab/potion-base-2M';
     stdout.writeln('\n🚀 Initializing $modelId...');
     final sw = Stopwatch()..start();
-    Model2Vec.initEmbedder(modelId);
+    Model2Vec.loadModel(modelId);
     stdout
       ..writeln('✨ Initialized in ${sw.elapsedMilliseconds}ms')
       // 3. Inspect Model Metadata

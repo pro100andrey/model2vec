@@ -74,8 +74,8 @@ void main() {
   // Model2Vec is a stateless namespace of static methods — there is one
   // active model per process, loaded automatically via Native Assets.
 
-  // Initialize with a model from Hugging Face
-  Model2Vec.initEmbedder('minishlab/potion-base-2M');
+  // Load a model from Hugging Face
+  Model2Vec.loadModel('minishlab/potion-base-2M');
 
   // Generate an embedding
   final embedding = Model2Vec.generateEmbedding('Dart FFI is blazingly fast 🚀');
@@ -138,11 +138,11 @@ Future<void> processHugeFile() async {
 
 Never block the main thread. If you are building a Flutter app, always use the `Async` variants to perform generation in a background `Isolate`.
 
-Loading is the heaviest step of all — the first time a model is fetched it downloads tens to hundreds of MB. `initEmbedderAsync` runs that load on a background isolate; because the native model is a single process-global, the loaded model is then visible to every isolate.
+Loading is the heaviest step of all — the first time a model is fetched it downloads tens to hundreds of MB. `loadModelAsync` runs that load on a background isolate; because the native model is a single process-global, the loaded model is then visible to every isolate.
 
 ```dart
 // Load off the main thread so the first download never freezes the UI.
-await Model2Vec.initEmbedderAsync('minishlab/potion-base-2M');
+await Model2Vec.loadModelAsync('minishlab/potion-base-2M');
 
 final embedding = await Model2Vec.generateEmbeddingAsync('A very long text...');
 final batch = await Model2Vec.generateBatchEmbeddingsAsync(['A', 'B', 'C']);
@@ -235,11 +235,11 @@ Model2Vec.unloadModel();                           // releases the native model
 
 | Method / Property | Description |
 | ----------------- | ----------- |
-| `initEmbedder(path)` | Initializes the model from a Hugging Face repo ID or local path. |
-| `initEmbedderAdvanced(...)` | Advanced initialization with custom `cacheDirectory`, `hfToken`, or `normalize` overrides. |
-| `initEmbedderFromBytes(...)` | Initializes the model directly from raw `Uint8List` bytes (`model.safetensors`, `tokenizer.json`, etc). |
-| `initEmbedderAsync(path)` | Loads a model on a background isolate; await it so the first download never blocks the UI. |
-| `initEmbedderAdvancedAsync(...)` | Async form of `initEmbedderAdvanced` (background isolate). |
+| `loadModel(path)` | Loads the model from a Hugging Face repo ID or local path. |
+| `loadModelAdvanced(...)` | Advanced load with custom `cacheDirectory`, `hfToken`, or `normalize` overrides. |
+| `loadModelFromBytes(...)` | Loads the model directly from raw `Uint8List` bytes (`model.safetensors`, `tokenizer.json`, etc). |
+| `loadModelAsync(path)` | Loads a model on a background isolate; await it so the first download never blocks the UI. |
+| `loadModelAdvancedAsync(...)` | Async form of `loadModelAdvanced` (background isolate). |
 | `recommendedModels` | A typed `List<RecommendedModel>` catalog of officially recommended Potion models (offline). |
 | `tokenize(text)` | Runs the internal BPE tokenizer and returns a `List<String>`. |
 | `generateEmbedding(text)` | Synchronously generates a `Float32List` embedding vector. |
@@ -251,6 +251,10 @@ Model2Vec.unloadModel();                           // releases the native model
 | `unloadModel()` | Unloads the active model and frees its native memory. |
 | `embeddingDimension` | Property returning the vector size (e.g., 256, 384, 512). |
 | `vocabularySize` | Property returning the number of tokens in the model's vocabulary. |
+
+> The `initEmbedder*` methods are deprecated aliases for `loadModel*` — the
+> lifecycle pair is now `loadModel` ⇄ `unloadModel`. The old names still work
+> and will be removed in 3.0.0.
 
 ### Math Utilities (`Model2VecUtils` class)
 

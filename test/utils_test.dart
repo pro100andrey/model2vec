@@ -302,7 +302,7 @@ void main() {
 
   group('Model2VecUtils - Real World', () {
     setUpAll(() {
-      Model2Vec.initEmbedder('minishlab/potion-base-2M');
+      Model2Vec.loadModel('minishlab/potion-base-2M');
     });
 
     test('semantic similarity makes sense', () {

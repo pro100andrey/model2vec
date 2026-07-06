@@ -42,10 +42,10 @@ void main() {
   });
 
   group('native error path', () {
-    test('initEmbedderFromBytes with garbage throws a typed exception', () {
+    test('loadModelFromBytes with garbage throws a typed exception', () {
       final garbage = Uint8List.fromList([0, 1, 2, 3]);
       expect(
-        () => Model2Vec.initEmbedderFromBytes(
+        () => Model2Vec.loadModelFromBytes(
           tokenizerBytes: garbage,
           modelBytes: garbage,
           configBytes: garbage,

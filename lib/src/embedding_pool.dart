@@ -12,7 +12,7 @@ import 'embedding_worker.dart';
 /// parallelize embedding across CPU cores. Use this for large workloads where a
 /// single `Model2Vec.generateEmbeddingStream` worker is the bottleneck.
 ///
-/// A model must be initialized (via `Model2Vec.initEmbedder`) before use, and
+/// A model must be loaded (via `Model2Vec.loadModel`) before use, and
 /// must not be switched while the pool is working (the one-model-per-run
 /// contract, same as the single worker).
 class EmbeddingPool {

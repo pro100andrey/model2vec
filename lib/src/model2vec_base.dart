@@ -85,22 +85,26 @@ abstract final class Model2Vec {
     }
   });
 
-  /// Initializes a model from a Hugging Face repo id or a local directory path.
+  /// Loads a model from a Hugging Face repo id or a local directory path,
+  /// replacing any currently active model.
   ///
   /// [modelPath] can be a repo id like `minishlab/potion-base-8M` or a path to
   /// a directory containing `model.safetensors`, `config.json` and
   /// `tokenizer.json`.
-  static void initEmbedder(String modelPath) =>
-      initEmbedderAdvanced(modelPath: modelPath);
+  ///
+  /// This is synchronous and blocks the calling isolate for the whole load,
+  /// including the first download. Use [loadModelAsync] to load off-thread.
+  static void loadModel(String modelPath) =>
+      loadModelAdvanced(modelPath: modelPath);
 
-  /// Advanced model initialization with additional options.
+  /// Advanced model loading with additional options.
   ///
   /// - [modelPath]: Repo id or local path.
   /// - [hfToken]: Optional Hugging Face API token for private repos.
   /// - [cacheDirectory]: Optional path to store downloaded models.
   /// - [normalize]: Whether to L2-normalize output embeddings.
   /// - [subfolder]: Optional subfolder within the repo/path.
-  static void initEmbedderAdvanced({
+  static void loadModelAdvanced({
     required String modelPath,
     String? hfToken,
     String? cacheDirectory,
@@ -133,12 +137,12 @@ abstract final class Model2Vec {
     );
   });
 
-  /// Initializes a model using raw bytes from memory.
+  /// Loads a model from raw bytes in memory.
   ///
   /// - [tokenizerBytes]: Content of `tokenizer.json`.
   /// - [modelBytes]: Content of `model.safetensors`.
   /// - [configBytes]: Content of `config.json`.
-  static void initEmbedderFromBytes({
+  static void loadModelFromBytes({
     required Uint8List tokenizerBytes,
     required Uint8List modelBytes,
     required Uint8List configBytes,
@@ -168,34 +172,102 @@ abstract final class Model2Vec {
 
   /// Loads a model asynchronously on a background isolate.
   ///
-  /// Prefer this over [initEmbedder] when the model may be downloaded from
+  /// Prefer this over [loadModel] when the model may be downloaded from
   /// Hugging Face for the first time (tens to hundreds of MB): the synchronous
-  /// [initEmbedder] blocks the calling isolate for the entire download, which
+  /// [loadModel] blocks the calling isolate for the entire download, which
   /// freezes a Flutter UI. The native model is a single process-global, so once
   /// the background isolate has loaded it the model is visible to every isolate
   /// — including the one that awaited this call.
-  static Future<void> initEmbedderAsync(String modelPath) =>
-      Isolate.run(() => initEmbedder(modelPath));
+  static Future<void> loadModelAsync(String modelPath) =>
+      Isolate.run(() => loadModel(modelPath));
 
-  /// Advanced counterpart to [initEmbedderAsync].
+  /// Advanced counterpart to [loadModelAsync].
   ///
-  /// Takes the same options as [initEmbedderAdvanced] and loads them on a
-  /// background isolate; see [initEmbedderAsync] for why loading off-thread
+  /// Takes the same options as [loadModelAdvanced] and loads them on a
+  /// background isolate; see [loadModelAsync] for why loading off-thread
   /// matters and why the loaded model is visible on every isolate.
-  static Future<void> initEmbedderAdvancedAsync({
+  static Future<void> loadModelAdvancedAsync({
     required String modelPath,
     String? hfToken,
     String? cacheDirectory,
     bool? normalize,
     String? subfolder,
   }) => Isolate.run(
-    () => initEmbedderAdvanced(
+    () => loadModelAdvanced(
       modelPath: modelPath,
       hfToken: hfToken,
       cacheDirectory: cacheDirectory,
       normalize: normalize,
       subfolder: subfolder,
     ),
+  );
+
+  // --- Deprecated init* aliases --------------------------------------------
+  // "Embedder" is absent from the domain glossary (CONTEXT.md), which pairs
+  // load/unload over the Model. These shims delegate to the load* methods and
+  // are scheduled for removal in 3.0.0.
+
+  /// Deprecated alias for [loadModel].
+  // Delegating shim; see the section note above. Remove in 3.0.0.
+  // ignore: remove_deprecations_in_breaking_versions
+  @Deprecated('Use loadModel. Will be removed in 3.0.0.')
+  static void initEmbedder(String modelPath) => loadModel(modelPath);
+
+  /// Deprecated alias for [loadModelAdvanced].
+  // Delegating shim; see the section note above. Remove in 3.0.0.
+  // ignore: remove_deprecations_in_breaking_versions
+  @Deprecated('Use loadModelAdvanced. Will be removed in 3.0.0.')
+  static void initEmbedderAdvanced({
+    required String modelPath,
+    String? hfToken,
+    String? cacheDirectory,
+    bool? normalize,
+    String? subfolder,
+  }) => loadModelAdvanced(
+    modelPath: modelPath,
+    hfToken: hfToken,
+    cacheDirectory: cacheDirectory,
+    normalize: normalize,
+    subfolder: subfolder,
+  );
+
+  /// Deprecated alias for [loadModelFromBytes].
+  // Delegating shim; see the section note above. Remove in 3.0.0.
+  // ignore: remove_deprecations_in_breaking_versions
+  @Deprecated('Use loadModelFromBytes. Will be removed in 3.0.0.')
+  static void initEmbedderFromBytes({
+    required Uint8List tokenizerBytes,
+    required Uint8List modelBytes,
+    required Uint8List configBytes,
+  }) => loadModelFromBytes(
+    tokenizerBytes: tokenizerBytes,
+    modelBytes: modelBytes,
+    configBytes: configBytes,
+  );
+
+  /// Deprecated alias for [loadModelAsync].
+  // Delegating shim; see the section note above. Remove in 3.0.0.
+  // ignore: remove_deprecations_in_breaking_versions
+  @Deprecated('Use loadModelAsync. Will be removed in 3.0.0.')
+  static Future<void> initEmbedderAsync(String modelPath) =>
+      loadModelAsync(modelPath);
+
+  /// Deprecated alias for [loadModelAdvancedAsync].
+  // Delegating shim; see the section note above. Remove in 3.0.0.
+  // ignore: remove_deprecations_in_breaking_versions
+  @Deprecated('Use loadModelAdvancedAsync. Will be removed in 3.0.0.')
+  static Future<void> initEmbedderAdvancedAsync({
+    required String modelPath,
+    String? hfToken,
+    String? cacheDirectory,
+    bool? normalize,
+    String? subfolder,
+  }) => loadModelAdvancedAsync(
+    modelPath: modelPath,
+    hfToken: hfToken,
+    cacheDirectory: cacheDirectory,
+    normalize: normalize,
+    subfolder: subfolder,
   );
 
   /// Unloads the active model and frees its native memory.

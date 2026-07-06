@@ -8,7 +8,7 @@ void main() {
     test('Successful initialization (online)', () {
       // Must be the first init call so later tests have a loaded model.
       expect(
-        () => Model2Vec.initEmbedder('minishlab/potion-base-2M'),
+        () => Model2Vec.loadModel('minishlab/potion-base-2M'),
         returnsNormally,
       );
     });
@@ -145,11 +145,11 @@ void main() {
     group('Model Switching', () {
       test('can switch between different models successfully', () {
         // Switch to 8M model (dimension 256)
-        Model2Vec.initEmbedder('minishlab/potion-base-8M');
+        Model2Vec.loadModel('minishlab/potion-base-8M');
         expect(Model2Vec.embeddingDimension, equals(256));
 
         // Switch back to 2M model (dimension 64)
-        Model2Vec.initEmbedder('minishlab/potion-base-2M');
+        Model2Vec.loadModel('minishlab/potion-base-2M');
         expect(Model2Vec.embeddingDimension, equals(64));
       });
     });
@@ -180,7 +180,7 @@ void main() {
         try {
           // Now that switching is enabled, this should return normally
           expect(
-            () => Model2Vec.initEmbedderAdvanced(
+            () => Model2Vec.loadModelAdvanced(
               modelPath: 'minishlab/potion-base-2M',
               cacheDirectory: tempDir.path,
             ),

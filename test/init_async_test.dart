@@ -6,10 +6,10 @@ import 'package:test/test.dart';
 void main() {
   group('async model loading', () {
     test(
-      'initEmbedderAsync loads the process-global model, visible on the '
+      'loadModelAsync loads the process-global model, visible on the '
       'calling isolate',
       () async {
-        await Model2Vec.initEmbedderAsync('minishlab/potion-base-2M');
+        await Model2Vec.loadModelAsync('minishlab/potion-base-2M');
 
         // The load ran on a background isolate; the native model is a
         // process-global, so a synchronous call on this isolate sees it.
@@ -22,10 +22,10 @@ void main() {
       },
     );
 
-    test('initEmbedderAdvancedAsync honors a custom cache directory', () async {
+    test('loadModelAdvancedAsync honors a custom cache directory', () async {
       final tempDir = Directory.systemTemp.createTempSync('m2v_async_cache_');
       try {
-        await Model2Vec.initEmbedderAdvancedAsync(
+        await Model2Vec.loadModelAdvancedAsync(
           modelPath: 'minishlab/potion-base-2M',
           cacheDirectory: tempDir.path,
         );
@@ -38,7 +38,7 @@ void main() {
 
     test('a failed async load surfaces a typed Model2VecException', () {
       expect(
-        Model2Vec.initEmbedderAsync('definitely/not-a-real-model-xyz'),
+        Model2Vec.loadModelAsync('definitely/not-a-real-model-xyz'),
         throwsA(isA<Model2VecException>()),
       );
     });

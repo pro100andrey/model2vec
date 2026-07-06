@@ -47,7 +47,7 @@ void main() {
   for (final model in models) {
     stdout.write('Warming up $model... ');
     final watch = Stopwatch()..start();
-    Model2Vec.initEmbedder(model);
+    Model2Vec.loadModel(model);
     watch.stop();
     stdout.writeln('Done in ${watch.elapsedMilliseconds} ms.');
   }
@@ -62,7 +62,7 @@ void main() {
   for (final model in models) {
     // Measure Load Time (Already cached)
     final watch = Stopwatch()..start();
-    Model2Vec.initEmbedder(model);
+    Model2Vec.loadModel(model);
     watch.stop();
     final loadTime = '${watch.elapsedMilliseconds} ms';
 
