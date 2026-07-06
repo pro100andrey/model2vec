@@ -2,9 +2,6 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-///
-typedef _IndexedSimilarity = ({int i, double s});
-
 /// Utilities for working with embedding vectors.
 // ignore: avoid_classes_with_only_static_members
 final class Model2VecUtils {
@@ -72,66 +69,19 @@ final class Model2VecUtils {
     return math.sqrt(sum);
   }
 
-  /// Finds the indices of the top [topK] most similar vectors in [candidates]
-
-  /// to the [query] vector.
+  /// Ranks [candidates] by cosine similarity to [query], most similar first,
+  /// pairing each kept candidate's index with its score.
   ///
-  /// Returns a list of indices sorted by similarity (descending).
-  static List<int> similaritySearch(
-    Float32List query,
-    List<Float32List> candidates, {
-    int topK = 5,
-  }) {
-    if (candidates.isEmpty) {
-      return [];
-    }
-
-    final similarities = <_IndexedSimilarity>[];
-    for (var i = 0; i < candidates.length; i++) {
-      similarities.add(
-        (i: i, s: cosineSimilarity(query, candidates[i])),
-      );
-    }
-
-    similarities.sort((a, b) => b.s.compareTo(a.s));
-
-    return similarities
-        .take(math.min(topK, similarities.length))
-        .map((s) => s.i)
-        .toList(growable: false);
-  }
-
-  /// Finds indices of all vectors in [candidates] that have a similarity
-  /// score greater than or equal to [threshold] with the [query].
-  ///
-  /// Returns a list of indices sorted by similarity (descending).
-  static List<int> similaritySearchWithThreshold(
-    Float32List query,
-    List<Float32List> candidates, {
-    required double threshold,
-  }) {
-    if (candidates.isEmpty) {
-      return [];
-    }
-
-    final similarities = <_IndexedSimilarity>[];
-    for (var i = 0; i < candidates.length; i++) {
-      final sim = cosineSimilarity(query, candidates[i]);
-      if (sim >= threshold) {
-        similarities.add((i: i, s: sim));
-      }
-    }
-
-    similarities.sort((a, b) => b.s.compareTo(a.s));
-    return similarities.map((s) => s.i).toList(growable: false);
-  }
-
-  /// Like [similaritySearch] but returns each candidate index paired with its
-  /// cosine similarity to [query], most similar first.
+  /// Keeps at most [topK] results; pass a [threshold] to also drop any result
+  /// scoring below it (raise [topK] to keep every match above the floor). This
+  /// is the ad-hoc counterpart to `EmbeddingIndex.search` for a list of vectors
+  /// you already hold in memory — it is the single scored search on this class;
+  /// the older index-only variants are deprecated.
   static List<({int index, double score})> similaritySearchWithScores(
     Float32List query,
     List<Float32List> candidates, {
     int topK = 5,
+    double? threshold,
   }) {
     if (candidates.isEmpty || topK <= 0) {
       return [];
@@ -139,9 +89,48 @@ final class Model2VecUtils {
     final scored = <({int index, double score})>[
       for (var i = 0; i < candidates.length; i++)
         (index: i, score: cosineSimilarity(query, candidates[i])),
-    ]..sort((a, b) => b.score.compareTo(a.score));
-    return scored.take(math.min(topK, scored.length)).toList(growable: false);
+    ];
+    final ranked =
+        (threshold == null
+            ? scored
+            : scored.where((r) => r.score >= threshold).toList())
+          ..sort((a, b) => b.score.compareTo(a.score));
+    return ranked.take(math.min(topK, ranked.length)).toList(growable: false);
   }
+
+  /// Finds the indices of the top [topK] most similar vectors in [candidates],
+  /// sorted by similarity (descending).
+  // Kept one release as a delegating shim; scheduled for removal in 3.0.0.
+  // ignore: remove_deprecations_in_breaking_versions
+  @Deprecated(
+    'Use similaritySearchWithScores and read .index. Will be removed in 3.0.0.',
+  )
+  static List<int> similaritySearch(
+    Float32List query,
+    List<Float32List> candidates, {
+    int topK = 5,
+  }) => similaritySearchWithScores(query, candidates, topK: topK)
+      .map((r) => r.index)
+      .toList(growable: false);
+
+  /// Finds the indices of every vector in [candidates] whose similarity to
+  /// [query] is `>= threshold`, sorted by similarity (descending).
+  // Kept one release as a delegating shim; scheduled for removal in 3.0.0.
+  // ignore: remove_deprecations_in_breaking_versions
+  @Deprecated(
+    'Use similaritySearchWithScores(threshold: ...) and read .index. '
+    'Will be removed in 3.0.0.',
+  )
+  static List<int> similaritySearchWithThreshold(
+    Float32List query,
+    List<Float32List> candidates, {
+    required double threshold,
+  }) => similaritySearchWithScores(
+    query,
+    candidates,
+    topK: candidates.length,
+    threshold: threshold,
+  ).map((r) => r.index).toList(growable: false);
 
   /// Reranks [candidates] against [query] with Maximal Marginal Relevance,
   /// trading off relevance (similarity to the query) against diversity

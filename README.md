@@ -32,7 +32,7 @@
 - **Massive Streaming:** Built-in `generateEmbeddingStream` for processing millions of rows without blocking the Event Loop or overflowing RAM.
 - **Hugging Face Integration:** Automatically downloads and caches models directly from the Hugging Face Hub.
 - **Zero-Stutter Async:** Transparently runs heavy tokenization and math in background Dart Isolates using `Async` methods.
-- **Vector Utilities:** Ships with high-performance mathematical tools (`cosineSimilarity`, `quantizeToInt8`, `similaritySearch`, etc.).
+- **Vector Utilities:** Ships with high-performance mathematical tools (`cosineSimilarity`, `quantizeToInt8`, `similaritySearchWithScores`, etc.).
 
 ## Recommended Models
 
@@ -162,9 +162,9 @@ final candidates = [
 // 1. Semantic Similarity (Cosine)
 final sim = Model2VecUtils.cosineSimilarity(query, candidates[0]);
 
-// 2. Threshold Searching (Find all matches > 80%)
-final matches = Model2VecUtils.similaritySearchWithThreshold(
-  query, candidates, threshold: 0.8,
+// 2. Threshold Searching — (index, score) pairs for all matches > 80%
+final matches = Model2VecUtils.similaritySearchWithScores(
+  query, candidates, threshold: 0.8, topK: candidates.length,
 );
 
 // 3. Scalar Quantization (Compress Float32 to Int8 to save 4x RAM)
@@ -259,8 +259,7 @@ Model2Vec.unloadModel();                           // releases the native model
 | `cosineSimilarity(a, b)` | Calculates cosine similarity (-1.0 to 1.0) between two vectors. |
 | `cosineDistance(a, b)` | Calculates cosine distance (0.0 to 2.0). |
 | `euclideanDistance(a, b)` | Calculates Euclidean (L2) distance. |
-| `similaritySearch(query, docs)` | Returns the indices of the Top-K most similar vectors in a database. |
-| `similaritySearchWithThreshold` | Returns all indices with similarity above a given threshold. |
+| `similaritySearchWithScores(query, docs)` | Ranks an in-memory vector list by cosine similarity; returns `(index, score)` pairs, top-K with an optional score `threshold`. |
 | `quantizeToInt8(vector)` | Compresses a `Float32List` into an `Int8List` (4x memory savings). |
 | `normalize(vector)` | Applies L2 normalization to a vector. |
 | `meanPooling(vectors)` | Averages multiple vectors into a single vector. |
@@ -282,7 +281,7 @@ Here is a performance benchmark run on a typical machine (AOT compiled):
 
 > *Note: Initial load times may vary slightly based on the disk speed. Generating an embedding takes just **a few microseconds** per string.*
 
-- `similaritySearch` over 100,000 vectors takes **<100ms** in pure Dart.
+- `similaritySearchWithScores` over 100,000 vectors takes **<100ms** in pure Dart.
 
 ## Development & Contributing
 

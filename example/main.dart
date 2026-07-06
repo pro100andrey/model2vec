@@ -78,9 +78,13 @@ Future<void> main() async {
         '  - Sim(kitten, space): ${(simSpace * 100).toStringAsFixed(1)}%',
       );
 
-    final topMatch = Model2VecUtils.similaritySearch(query, db, topK: 1);
+    final topMatch = Model2VecUtils.similaritySearchWithScores(
+      query,
+      db,
+      topK: 1,
+    );
     stdout
-      ..writeln('  - Best match index:   ${topMatch.first}')
+      ..writeln('  - Best match index:   ${topMatch.first.index}')
       // 8. Streaming API for Huge Datasets
       ..writeln('\n🌊 Streaming API (1000 items):');
     final stream = Stream.fromIterable(List.generate(1000, (i) => 'Item $i'));

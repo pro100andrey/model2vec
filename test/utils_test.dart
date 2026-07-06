@@ -44,7 +44,7 @@ void main() {
       expect(() => Model2VecUtils.cosineSimilarity(a, b), throwsArgumentError);
     });
 
-    test('similaritySearch finds most similar vectors', () {
+    test('deprecated similaritySearch still delegates to the scored shape', () {
       final query = Float32List.fromList([1.0, 0.0]);
       final candidates = [
         Float32List.fromList([0.0, 1.0]), // orthogonal
@@ -53,6 +53,8 @@ void main() {
         Float32List.fromList([0.5, 0.5]), // somewhat similar
       ];
 
+      // Deliberately exercises the deprecated shim to prove it delegates.
+      // ignore: deprecated_member_use_from_same_package
       final results = Model2VecUtils.similaritySearch(
         query,
         candidates,
@@ -64,7 +66,7 @@ void main() {
       expect(results[1], equals(3)); // [0.5, 0.5]
     });
 
-    test('similaritySearchWithThreshold works correctly', () {
+    test('deprecated similaritySearchWithThreshold still delegates', () {
       final query = Float32List.fromList([1.0, 0.0]);
       final candidates = [
         Float32List.fromList([0.0, 1.0]), // sim: 0.0
@@ -73,6 +75,8 @@ void main() {
         Float32List.fromList([0.5, 0.5]), // sim: 0.707
       ];
 
+      // Deliberately exercises the deprecated shim to prove it delegates.
+      // ignore: deprecated_member_use_from_same_package
       final results = Model2VecUtils.similaritySearchWithThreshold(
         query,
         candidates,
@@ -156,6 +160,45 @@ void main() {
         Model2VecUtils.similaritySearchWithScores(query, const []),
         isEmpty,
       );
+    });
+
+    test('similaritySearchWithScores drops results below the threshold', () {
+      final query = Float32List.fromList([1.0, 0.0]);
+      final candidates = [
+        Float32List.fromList([0.0, 1.0]), // sim: 0.0
+        Float32List.fromList([0.9, 0.1]), // sim: ~0.994
+        Float32List.fromList([-1.0, 0.0]), // sim: -1.0
+        Float32List.fromList([0.5, 0.5]), // sim: ~0.707
+      ];
+
+      final results = Model2VecUtils.similaritySearchWithScores(
+        query,
+        candidates,
+        topK: 10,
+        threshold: 0.8,
+      );
+
+      expect(results.map((r) => r.index).toList(), [1]);
+      expect(results.single.score, greaterThan(0.8));
+    });
+
+    test('similaritySearchWithScores caps threshold matches at topK', () {
+      final query = Float32List.fromList([1.0, 0.0]);
+      final candidates = [
+        Float32List.fromList([1.0, 0.0]), // sim 1.0
+        Float32List.fromList([0.99, 0.01]), // sim ~0.9999
+        Float32List.fromList([0.98, 0.02]), // sim ~0.9998
+      ];
+
+      final results = Model2VecUtils.similaritySearchWithScores(
+        query,
+        candidates,
+        topK: 2,
+        threshold: 0.5, // all three clear the floor, but topK caps to 2
+      );
+
+      expect(results, hasLength(2));
+      expect(results.map((r) => r.index).toList(), [0, 1]);
     });
 
     test('MMR prefers a diverse result over a near-duplicate', () {
