@@ -9,6 +9,7 @@ import 'batcher.dart';
 import 'embedding_worker.dart';
 import 'exception.dart';
 import 'model2vec_bindings.g.dart' as native;
+import 'model_info.dart';
 import 'recommended_model.dart';
 
 /// The main entry point for the Model2Vec library.
@@ -19,6 +20,10 @@ import 'recommended_model.dart';
 /// SDK's code-asset resolver — there is nothing to boot or inject.
 // ignore: avoid_classes_with_only_static_members
 abstract final class Model2Vec {
+  /// Whether a model is currently loaded. Unlike the metadata getters, this
+  /// never throws — use it to guard calls before a model is initialized.
+  static bool get isInitialized => native.is_model_loaded() == 1;
+
   /// Returns the embedding dimension of the currently loaded model.
   ///
   /// Throws a [Model2VecException] if no model has been initialized yet.
@@ -40,6 +45,17 @@ abstract final class Model2Vec {
   /// Throws a [Model2VecException] if no model has been initialized yet.
   static int get medianTokenLength =>
       _readInt(native.get_median_token_length);
+
+  /// Reads the current model's metadata into a [ModelInfo].
+  ///
+  /// Reflects the model loaded at call time; do not switch or unload the model
+  /// concurrently. Throws a [Model2VecException] if no model is loaded.
+  static ModelInfo get modelInfo => ModelInfo(
+    dimension: embeddingDimension,
+    vocabularySize: vocabularySize,
+    isNormalized: isNormalized,
+    medianTokenLength: medianTokenLength,
+  );
 
   static int _readInt(
     int Function(Pointer<Int>, Pointer<Pointer<Char>>) fn,
@@ -148,6 +164,15 @@ abstract final class Model2Vec {
       ),
       outError,
     );
+  });
+
+  /// Unloads the active model and frees its native memory.
+  ///
+  /// Safe to call when no model is loaded. After this, [isInitialized] is
+  /// `false` and the metadata getters throw until a model is re-initialized.
+  static void unloadModel() => using((arena) {
+    final outError = arena<Pointer<Char>>();
+    _check(native.free_embedder(outError), outError);
   });
 
   /// Officially recommended Potion models to start from.

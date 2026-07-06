@@ -172,6 +172,53 @@ final sentenceVector = Model2VecUtils.meanPooling(candidates);
 final base64String = Model2VecUtils.toBase64(query);
 ```
 
+### 5. Local Retrieval (RAG) with `EmbeddingIndex`
+
+Build a searchable, persistable index of your documents entirely on-device — chunk, embed, store, and query without a server.
+
+```dart
+// 1. Split long documents into overlapping passages
+final passages = chunkText(document, maxChars: 800, overlap: 100);
+
+// 2. Embed and index them (int8 storage cuts memory ~4x)
+final index = EmbeddingIndex(quantized: true);
+for (var i = 0; i < passages.length; i++) {
+  index.add('passage-$i', Model2Vec.generateEmbedding(passages[i]));
+}
+
+// 3. Query — returns SearchResult(id, score), most similar first
+final query = Model2Vec.generateEmbedding('How do I reset my password?');
+final hits = index.search(query, topK: 5);
+for (final hit in hits) {
+  print('${hit.id}: ${hit.score.toStringAsFixed(3)}');
+}
+
+// 4. Persist to disk and reload later
+final bytes = index.toBytes();
+final reloaded = EmbeddingIndex.fromBytes(bytes);
+
+// (Optional) Rerank a candidate vector list for diverse results (MMR):
+final diverse = Model2VecUtils.maximalMarginalRelevance(
+  query, candidateVectors, topK: 5, lambda: 0.5,
+);
+```
+
+### 6. Parallel Embedding & Lifecycle
+
+```dart
+// Embed across all CPU cores with a pool of worker isolates
+final pool = await EmbeddingPool.start();          // defaults to core count
+final results = await pool.embedBatches(listOfBatches);
+await pool.close();
+
+// Non-throwing state check + free native memory when done
+if (Model2Vec.isInitialized) {
+  final info = Model2Vec.modelInfo;                // dim, vocab, normalized, median
+  print('Loaded model with dimension ${info.dimension}');
+}
+Model2Vec.unloadModel();                           // releases the native model
+```
+
 ## API Reference
 
 ### Core Methods (`Model2Vec` class)
@@ -187,6 +234,9 @@ final base64String = Model2VecUtils.toBase64(query);
 | `generateBatchEmbeddings(texts)` | Synchronously generates embeddings for a `List<String>` using Rust SIMD. |
 | `generateEmbeddingAsync(text)` | Asynchronously generates an embedding in a background `Isolate`. |
 | `generateEmbeddingStream(stream)` | Processes a huge `Stream<String>` into a `Stream<Float32List>` in batches. |
+| `isInitialized` | Non-throwing check for whether a model is currently loaded. |
+| `modelInfo` | All model metadata in one `ModelInfo` (dimension, vocabulary, normalized, median). |
+| `unloadModel()` | Unloads the active model and frees its native memory. |
 | `embeddingDimension` | Property returning the vector size (e.g., 256, 384, 512). |
 | `vocabularySize` | Property returning the number of tokens in the model's vocabulary. |
 

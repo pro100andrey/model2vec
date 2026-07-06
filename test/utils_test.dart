@@ -125,6 +125,100 @@ void main() {
       expect(quantized[3], equals(-127));
     });
 
+    test('dequantizeInt8 approximately inverts quantizeToInt8', () {
+      final vector = Float32List.fromList([0.5, -0.25, 1.0, -1.0, 0.0]);
+      final restored = Model2VecUtils.dequantizeInt8(
+        Model2VecUtils.quantizeToInt8(vector),
+      );
+
+      expect(restored.length, equals(vector.length));
+      for (var i = 0; i < vector.length; i++) {
+        expect(restored[i], closeTo(vector[i], 0.01));
+      }
+    });
+
+    test('similaritySearchWithScores returns sorted index+score pairs', () {
+      final query = Float32List.fromList([1, 0, 0]);
+      final candidates = [
+        Float32List.fromList([1, 0.2, 0]),
+        Float32List.fromList([1, 0.25, 0]),
+        Float32List.fromList([0.6, 0, 0.8]),
+      ];
+
+      final results = Model2VecUtils.similaritySearchWithScores(
+        query,
+        candidates,
+        topK: 2,
+      );
+      expect(results.map((r) => r.index).toList(), [0, 1]);
+      expect(results.first.score, greaterThan(results[1].score));
+      expect(
+        Model2VecUtils.similaritySearchWithScores(query, const []),
+        isEmpty,
+      );
+    });
+
+    test('MMR prefers a diverse result over a near-duplicate', () {
+      final query = Float32List.fromList([1, 0, 0]);
+      final candidates = [
+        Float32List.fromList([1, 0.2, 0]), // 0: most relevant
+        Float32List.fromList([1, 0.25, 0]), // 1: near-duplicate of 0
+        Float32List.fromList([0.6, 0, 0.8]), // 2: relevant-ish but diverse
+      ];
+
+      final selected = Model2VecUtils.maximalMarginalRelevance(
+        query,
+        candidates,
+        topK: 2,
+      );
+      expect(selected.first, 0); // most relevant first
+      expect(selected[1], 2); // diversity beats the near-duplicate
+    });
+
+    test('MMR with lambda 1.0 is pure relevance order', () {
+      final query = Float32List.fromList([1, 0, 0]);
+      final candidates = [
+        Float32List.fromList([0.6, 0, 0.8]),
+        Float32List.fromList([1, 0.2, 0]),
+        Float32List.fromList([1, 0.25, 0]),
+      ];
+
+      final selected = Model2VecUtils.maximalMarginalRelevance(
+        query,
+        candidates,
+        topK: 3,
+        lambda: 1,
+      );
+      expect(selected, [1, 2, 0]);
+      expect(
+        Model2VecUtils.maximalMarginalRelevance(query, const []),
+        isEmpty,
+      );
+    });
+
+    test('MMR rejects lambda outside [0, 1]', () {
+      final query = Float32List.fromList([1, 0]);
+      final candidates = [
+        Float32List.fromList([1, 0]),
+      ];
+      expect(
+        () => Model2VecUtils.maximalMarginalRelevance(
+          query,
+          candidates,
+          lambda: 1.5,
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => Model2VecUtils.maximalMarginalRelevance(
+          query,
+          candidates,
+          lambda: -0.1,
+        ),
+        throwsArgumentError,
+      );
+    });
+
     test('Base64 serialization works bidirectionally', () {
       final vector = Float32List.fromList([0.1, 0.2, -0.3, 100.5]);
       final base64 = Model2VecUtils.toBase64(vector);

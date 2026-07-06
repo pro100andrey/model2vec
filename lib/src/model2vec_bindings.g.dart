@@ -146,3 +146,11 @@ external void free_floats(
   ffi.Pointer<ffi.Float> ptr,
   int len,
 );
+
+@ffi.Native<ffi.Int Function()>()
+external int is_model_loaded();
+
+@ffi.Native<ffi.Int Function(ffi.Pointer<ffi.Pointer<ffi.Char>>)>()
+external int free_embedder(
+  ffi.Pointer<ffi.Pointer<ffi.Char>> out_error,
+);

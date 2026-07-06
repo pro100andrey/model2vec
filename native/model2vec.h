@@ -74,3 +74,7 @@ int generate_batch_embeddings_advanced(
 void free_string(char* s);
 
 void free_floats(float* ptr, size_t len);
+
+int is_model_loaded();
+
+int free_embedder(char** out_error);

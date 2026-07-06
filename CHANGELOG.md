@@ -34,6 +34,22 @@ correctness. **This release is breaking** — see migration below.
   worker isolate. Worker errors cross the isolate boundary as typed
   `Model2VecException`s (kind + code preserved) rather than stringified errors.
 
+**New capabilities:**
+
+- **Local vector index.** `EmbeddingIndex` — store embeddings by id, then
+  `search` the nearest by cosine similarity. Optional int8-quantized storage
+  (~4x less memory) and binary `toBytes`/`fromBytes` persistence. Turns the
+  package into a local retrieval engine for RAG.
+- **RAG pipeline helpers.** `chunkText` (overlapping character chunker),
+  `Model2VecUtils.similaritySearchWithScores` (index + score), and
+  `Model2VecUtils.maximalMarginalRelevance` (MMR reranking for diverse results).
+- **Lifecycle & DX.** `Model2Vec.isInitialized` (non-throwing check),
+  `Model2Vec.unloadModel()` (free the native model), `Model2Vec.modelInfo`
+  (all metadata in one `ModelInfo`), and `Model2VecUtils.dequantizeInt8`
+  (the inverse of `quantizeToInt8`).
+- **Parallel worker pool.** `EmbeddingPool` fans batches across N worker
+  isolates to embed concurrently across CPU cores.
+
 **Migration:**
 
 | 1.x | 2.0.0 |

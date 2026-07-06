@@ -357,3 +357,26 @@ pub extern "C" fn free_floats(ptr: *mut f32, len: usize) {
         let _ = Vec::from_raw_parts(ptr, len, len);
     }
 }
+
+/// Returns 1 if a model is currently loaded, 0 otherwise. Never fails: a
+/// poisoned lock is reported as "not loaded".
+#[no_mangle]
+pub extern "C" fn is_model_loaded() -> i32 {
+    match MODEL.read() {
+        Ok(lock) => i32::from(lock.is_some()),
+        Err(_) => 0,
+    }
+}
+
+/// Unloads the active model, freeing its memory. Idempotent (no-op when nothing
+/// is loaded).
+#[no_mangle]
+pub extern "C" fn free_embedder(out_error: *mut *mut c_char) -> i32 {
+    run_ffi(out_error, || {
+        let mut lock = MODEL
+            .write()
+            .map_err(|_| FfiError::new(CODE_LOCK_POISONED, "model lock poisoned"))?;
+        *lock = None;
+        Ok(())
+    })
+}

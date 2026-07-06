@@ -126,6 +126,75 @@ final class Model2VecUtils {
     return similarities.map((s) => s.i).toList(growable: false);
   }
 
+  /// Like [similaritySearch] but returns each candidate index paired with its
+  /// cosine similarity to [query], most similar first.
+  static List<({int index, double score})> similaritySearchWithScores(
+    Float32List query,
+    List<Float32List> candidates, {
+    int topK = 5,
+  }) {
+    if (candidates.isEmpty || topK <= 0) {
+      return [];
+    }
+    final scored = <({int index, double score})>[
+      for (var i = 0; i < candidates.length; i++)
+        (index: i, score: cosineSimilarity(query, candidates[i])),
+    ]..sort((a, b) => b.score.compareTo(a.score));
+    return scored.take(math.min(topK, scored.length)).toList(growable: false);
+  }
+
+  /// Reranks [candidates] against [query] with Maximal Marginal Relevance,
+  /// trading off relevance (similarity to the query) against diversity
+  /// (dissimilarity to already-picked results).
+  ///
+  /// [lambda] in `[0.0, 1.0]`: 1.0 is pure relevance, 0.0 is pure diversity.
+  /// Returns the selected candidate indices, best first.
+  static List<int> maximalMarginalRelevance(
+    Float32List query,
+    List<Float32List> candidates, {
+    int topK = 5,
+    double lambda = 0.5,
+  }) {
+    if (lambda < 0.0 || lambda > 1.0) {
+      throw ArgumentError.value(lambda, 'lambda', 'must be in [0.0, 1.0]');
+    }
+    if (candidates.isEmpty) {
+      return [];
+    }
+    final k = math.min(topK, candidates.length);
+    final relevance = [for (final c in candidates) cosineSimilarity(query, c)];
+    // Running max similarity of each candidate to any already-selected item,
+    // updated once per selection — keeps the whole reranking O(k * n * dim).
+    final maxSimToSelected = List<double>.filled(
+      candidates.length,
+      double.negativeInfinity,
+    );
+    final selected = <int>[];
+    final remaining = List<int>.generate(candidates.length, (i) => i);
+
+    while (selected.length < k && remaining.isNotEmpty) {
+      var bestIdx = remaining.first;
+      var bestScore = double.negativeInfinity;
+      for (final i in remaining) {
+        final penalty = selected.isEmpty ? 0.0 : maxSimToSelected[i];
+        final mmr = lambda * relevance[i] - (1 - lambda) * penalty;
+        if (mmr > bestScore) {
+          bestScore = mmr;
+          bestIdx = i;
+        }
+      }
+      selected.add(bestIdx);
+      remaining.remove(bestIdx);
+      for (final i in remaining) {
+        final sim = cosineSimilarity(candidates[i], candidates[bestIdx]);
+        if (sim > maxSimToSelected[i]) {
+          maxSimToSelected[i] = sim;
+        }
+      }
+    }
+    return selected;
+  }
+
   /// Calculates the cosine distance between two vectors.
   /// Distance is `1.0 - cosineSimilarity`. Range is 0.0 to 2.0.
   static double cosineDistance(Float32List a, Float32List b) =>
@@ -188,6 +257,17 @@ final class Model2VecUtils {
       result[i] = (vector[i] * 127.0).round().clamp(-128, 127);
     }
 
+    return result;
+  }
+
+  /// Reconstructs an approximate [Float32List] from an [Int8List] produced by
+  /// [quantizeToInt8] — the inverse scaling (value / 127). Quantization is
+  /// lossy, so the result is close to, but not exactly, the original vector.
+  static Float32List dequantizeInt8(Int8List quantized) {
+    final result = Float32List(quantized.length);
+    for (var i = 0; i < quantized.length; i++) {
+      result[i] = quantized[i] / 127.0;
+    }
     return result;
   }
 
