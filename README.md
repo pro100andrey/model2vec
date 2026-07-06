@@ -138,7 +138,12 @@ Future<void> processHugeFile() async {
 
 Never block the main thread. If you are building a Flutter app, always use the `Async` variants to perform generation in a background `Isolate`.
 
+Loading is the heaviest step of all — the first time a model is fetched it downloads tens to hundreds of MB. `initEmbedderAsync` runs that load on a background isolate; because the native model is a single process-global, the loaded model is then visible to every isolate.
+
 ```dart
+// Load off the main thread so the first download never freezes the UI.
+await Model2Vec.initEmbedderAsync('minishlab/potion-base-2M');
+
 final embedding = await Model2Vec.generateEmbeddingAsync('A very long text...');
 final batch = await Model2Vec.generateBatchEmbeddingsAsync(['A', 'B', 'C']);
 ```
@@ -228,6 +233,8 @@ Model2Vec.unloadModel();                           // releases the native model
 | `initEmbedder(path)` | Initializes the model from a Hugging Face repo ID or local path. |
 | `initEmbedderAdvanced(...)` | Advanced initialization with custom `cacheDirectory`, `hfToken`, or `normalize` overrides. |
 | `initEmbedderFromBytes(...)` | Initializes the model directly from raw `Uint8List` bytes (`model.safetensors`, `tokenizer.json`, etc). |
+| `initEmbedderAsync(path)` | Loads a model on a background isolate; await it so the first download never blocks the UI. |
+| `initEmbedderAdvancedAsync(...)` | Async form of `initEmbedderAdvanced` (background isolate). |
 | `recommendedModels` | A typed `List<RecommendedModel>` catalog of officially recommended Potion models (offline). |
 | `tokenize(text)` | Runs the internal BPE tokenizer and returns a `List<String>`. |
 | `generateEmbedding(text)` | Synchronously generates a `Float32List` embedding vector. |

@@ -166,6 +166,38 @@ abstract final class Model2Vec {
     );
   });
 
+  /// Loads a model asynchronously on a background isolate.
+  ///
+  /// Prefer this over [initEmbedder] when the model may be downloaded from
+  /// Hugging Face for the first time (tens to hundreds of MB): the synchronous
+  /// [initEmbedder] blocks the calling isolate for the entire download, which
+  /// freezes a Flutter UI. The native model is a single process-global, so once
+  /// the background isolate has loaded it the model is visible to every isolate
+  /// — including the one that awaited this call.
+  static Future<void> initEmbedderAsync(String modelPath) =>
+      Isolate.run(() => initEmbedder(modelPath));
+
+  /// Advanced counterpart to [initEmbedderAsync].
+  ///
+  /// Takes the same options as [initEmbedderAdvanced] and loads them on a
+  /// background isolate; see [initEmbedderAsync] for why loading off-thread
+  /// matters and why the loaded model is visible on every isolate.
+  static Future<void> initEmbedderAdvancedAsync({
+    required String modelPath,
+    String? hfToken,
+    String? cacheDirectory,
+    bool? normalize,
+    String? subfolder,
+  }) => Isolate.run(
+    () => initEmbedderAdvanced(
+      modelPath: modelPath,
+      hfToken: hfToken,
+      cacheDirectory: cacheDirectory,
+      normalize: normalize,
+      subfolder: subfolder,
+    ),
+  );
+
   /// Unloads the active model and frees its native memory.
   ///
   /// Safe to call when no model is loaded. After this, [isInitialized] is
