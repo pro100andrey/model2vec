@@ -61,7 +61,6 @@ void embeddingWorkerEntryPoint(SendPort mainSendPort) {
       final results = Model2Vec.generateBatchEmbeddings(
         request.batch,
         maxLength: request.maxLength,
-        batchSize: request.batch.length,
       );
       mainSendPort.send(results);
     } on Model2VecException catch (e) {

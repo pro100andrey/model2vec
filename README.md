@@ -95,15 +95,14 @@ void main() {
 
 ### 1. Advanced Batch Processing
 
-Process multiple strings at once for maximum hardware utilization. You can control sequence truncation and batch sizes.
+Process multiple strings at once for maximum hardware utilization. You can control sequence truncation with `maxLength`.
 
 ```dart
 final texts = ['Dart', 'Rust', 'Flutter'];
 
 final embeddings = Model2Vec.generateBatchEmbeddings(
   texts,
-  maxLength: 256,   // Truncate strings longer than 256 tokens
-  batchSize: 1024,  // Internal chunks sent to the FFI layer
+  maxLength: 256, // Truncate strings longer than 256 tokens
 );
 ```
 

@@ -369,17 +369,20 @@ abstract final class Model2Vec {
         }
       });
 
+  /// How many texts the native layer processes per internal chunk. This is a
+  /// throughput detail with no bearing on the result, so it is not exposed on
+  /// [generateBatchEmbeddings].
+  static const _ffiBatchSize = 1024;
+
   /// Generates embeddings for multiple [texts] in a single batch call.
   ///
   /// - [maxLength]: Maximum number of tokens to keep before truncating.
-  /// - [batchSize]: Size of the internal batches sent to the model.
   ///
   /// Returns a list of [Float32List], one per input text.
   /// Throws a [Model2VecException] if generation fails.
   static List<Float32List> generateBatchEmbeddings(
     List<String> texts, {
     int maxLength = 512,
-    int batchSize = 1024,
   }) {
     if (texts.isEmpty) {
       return [];
@@ -402,7 +405,7 @@ abstract final class Model2Vec {
           textPointers,
           count,
           maxLength,
-          batchSize,
+          _ffiBatchSize,
           outData,
           outDim,
           outCount,
@@ -442,13 +445,8 @@ abstract final class Model2Vec {
   static Future<List<Float32List>> generateBatchEmbeddingsAsync(
     List<String> texts, {
     int maxLength = 512,
-    int batchSize = 1024,
   }) => Isolate.run(
-    () => Model2Vec.generateBatchEmbeddings(
-      texts,
-      maxLength: maxLength,
-      batchSize: batchSize,
-    ),
+    () => Model2Vec.generateBatchEmbeddings(texts, maxLength: maxLength),
   );
 
   /// Consumes a stream of [texts] and yields a stream of embeddings.
@@ -469,11 +467,7 @@ abstract final class Model2Vec {
 
     if (!useIsolate) {
       await for (final batch in batches) {
-        final results = generateBatchEmbeddings(
-          batch,
-          maxLength: maxLength,
-          batchSize: batch.length,
-        );
+        final results = generateBatchEmbeddings(batch, maxLength: maxLength);
         for (final result in results) {
           yield result;
         }

@@ -155,7 +155,7 @@ void main() {
     });
 
     group('Advanced Features', () {
-      test('supports advanced parameters maxLength and batchSize', () {
+      test('maxLength truncation applies to single and batch embeddings', () {
         const text =
             'A very long sentence to test truncation with maxLength parameter';
         // With very short maxLength, the embedding should be different from
@@ -168,7 +168,6 @@ void main() {
         final batchEmbedding = Model2Vec.generateBatchEmbeddings(
           [text, text],
           maxLength: 2,
-          batchSize: 1,
         );
         expect(batchEmbedding.length, 2);
         expect(batchEmbedding[0], orderedEquals(shortEmbedding));
