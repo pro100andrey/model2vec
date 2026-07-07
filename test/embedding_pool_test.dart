@@ -78,8 +78,8 @@ void main() {
           entryPoint: countingEntryPoint,
         );
 
-        // Launch more batches than workers so some are queued behind others, then
-        // close before any of the (delayed) replies land.
+        // Launch more batches than workers so some are queued behind others, 
+        // then close before any of the (delayed) replies land.
         final batches = [
           for (var i = 0; i < 5; i++) pool.embedBatch(['a']),
         ];

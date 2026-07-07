@@ -67,7 +67,8 @@ void main() {
         final done = Completer<void>();
         channel.incoming.listen((_) {}, onDone: done.complete);
         // The dying worker closes its port (exiting) instead of replying; the
-        // exit must surface as incoming's onDone so a protocol above can't hang.
+        // exit must surface as incoming's onDone so a protocol above can't 
+        // hang.
         channel.send((batch: ['a'], maxLength: 8));
 
         await done.future;
