@@ -7,13 +7,17 @@ edition = "2021"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-libc = "0.2.186"
 anyhow = "1.0.102"
 serde_json = "1.0.150"
-serde = { version = "1.0.228", features = ["derive"] }
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }
 safetensors = "0.7.0"
-ndarray = "0.17.2"
 hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
 ureq = "3.3.0"
 half = "2.7.1"
+
+# Release is the profile the build hook uses. `panic = "unwind"` is left at the
+# default on purpose — the FFI boundary relies on catch_unwind to turn panics
+# into typed errors instead of aborting the host process.
+[profile.release]
+lto = true
+codegen-units = 1

@@ -49,6 +49,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+      - name: Clippy (native)
+        run: cargo clippy --manifest-path native/Cargo.toml --all-targets -- -D warnings
       - run: dart pub get
       - name: Run unit tests (no model download)
         run: dart test -x integration

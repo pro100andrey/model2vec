@@ -1,3 +1,9 @@
+// FFI entry points take raw pointers from the Dart side and dereference them
+// after null-checking — that is the C-ABI contract, not something clippy can
+// see the safety of. Marking every export `unsafe` would only move the same
+// obligation to the (non-Rust) call sites, so silence the lint crate-wide.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 use anyhow::Result;
 use std::any::Any;
 use std::ffi::{CStr, CString};
@@ -47,13 +53,13 @@ where
             e.code
         }
         Err(panic) => {
-            write_error(out_error, Some(&panic_message(&panic)));
+            write_error(out_error, Some(&panic_message(&*panic)));
             CODE_PANIC
         }
     }
 }
 
-fn panic_message(panic: &Box<dyn Any + Send>) -> String {
+fn panic_message(panic: &(dyn Any + Send)) -> String {
     if let Some(s) = panic.downcast_ref::<&str>() {
         format!("panic in native code: {s}")
     } else if let Some(s) = panic.downcast_ref::<String>() {
@@ -272,13 +278,10 @@ pub extern "C" fn generate_embedding(
         }
         let text_str = unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
         with_model(|model| {
-            let results = model
-                .encode_with_args(&[text_str], Some(max_length), 1)
+            // One sentence in, exactly `dim` floats out.
+            let embedding = model
+                .encode_flat(&[text_str], Some(max_length), 1)
                 .map_err(|e| FfiError::new(CODE_TOKENIZATION_FAILED, format!("{e}")))?;
-            let embedding = results
-                .into_iter()
-                .next()
-                .ok_or_else(|| FfiError::new(CODE_EMPTY_RESULT, "embedding result was empty"))?;
             write_usize(out_dim, embedding.len());
             alloc_floats(out_data, embedding);
             Ok(())
@@ -311,24 +314,18 @@ pub extern "C" fn generate_batch_embeddings_advanced(
         }
 
         with_model(|model| {
-            let results = model
-                .encode_with_args(&texts, Some(max_length), batch_size)
+            // Pooled straight into one flat buffer. dim + data are produced
+            // under this single read lock, so the dimension the caller frees
+            // against always matches the data.
+            let dim = model.dim();
+            let flat = model
+                .encode_flat(&texts, Some(max_length), batch_size)
                 .map_err(|e| FfiError::new(CODE_TOKENIZATION_FAILED, format!("{e}")))?;
-            if results.len() != count {
+            if flat.len() != count * dim {
                 return Err(FfiError::new(
                     CODE_EMPTY_RESULT,
-                    format!("expected {count} embeddings, got {}", results.len()),
+                    format!("expected {} floats, got {}", count * dim, flat.len()),
                 ));
-            }
-            // dim + data are produced under this single read lock, so the
-            // dimension the caller frees against always matches the data.
-            let dim = model.dim();
-            let mut flat = Vec::with_capacity(count * dim);
-            for embedding in &results {
-                if embedding.len() != dim {
-                    return Err(FfiError::new(CODE_EMPTY_RESULT, "embedding dimension mismatch"));
-                }
-                flat.extend_from_slice(embedding);
             }
             write_usize(out_dim, dim);
             write_usize(out_count, count);

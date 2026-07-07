@@ -3,7 +3,6 @@ use half::f16;
 use hf_hub::api::sync::{ApiBuilder, ApiRepo};
 use hf_hub::api::Progress;
 use hf_hub::Cache;
-use ndarray::{Array2, CowArray, Ix2};
 use safetensors::{tensor::Dtype, SafeTensors};
 use serde_json::Value;
 use std::borrow::Cow;
@@ -77,11 +76,18 @@ impl Progress for AtomicProgress {
     }
 }
 
-/// Static embedding model for Model2Vec
+/// Static embedding model for Model2Vec.
+///
+/// `embeddings` is a flat, row-major `rows * cols` buffer: row `r` (a token's
+/// vector) is `embeddings[r * cols .. (r + 1) * cols]`. Keeping it a plain slice
+/// (rather than an ndarray) lets the pooling loop iterate contiguous `&[f32]`
+/// rows, which the compiler auto-vectorizes.
 #[derive(Debug, Clone)]
 pub struct StaticModel {
     pub tokenizer: Tokenizer,
-    embeddings: CowArray<'static, f32, Ix2>,
+    embeddings: Cow<'static, [f32]>,
+    rows: usize,
+    cols: usize,
     weights: Option<Cow<'static, [f32]>>,
     token_mapping: Option<Cow<'static, [usize]>>,
     normalize: bool,
@@ -282,10 +288,11 @@ impl StaticModel {
             return Err(anyhow!("embeddings length {} != rows {} * cols {}", embeddings.len(), rows, cols));
         }
         let (median_token_length, unk_token_id) = Self::compute_metadata(&tokenizer)?;
-        let embeddings = Array2::from_shape_vec((rows, cols), embeddings).context("failed to build embeddings array")?;
         Ok(Self {
             tokenizer,
-            embeddings: CowArray::from(embeddings),
+            embeddings: Cow::Owned(embeddings),
+            rows,
+            cols,
             weights: weights.map(Cow::Owned),
             token_mapping: token_mapping.map(Cow::Owned),
             normalize,
@@ -313,13 +320,26 @@ impl StaticModel {
         s.char_indices().nth(max_tokens.saturating_mul(median_len)).map_or(s, |(byte_idx, _)| &s[..byte_idx])
     }
 
-    pub fn encode_with_args(
+    /// The `dim`-length embedding row for token `r`, or an error if `r` is
+    /// outside the table (a malformed model), so a bad id becomes a typed error
+    /// rather than an out-of-bounds panic.
+    fn row(&self, r: usize) -> Result<&[f32]> {
+        let dim = self.cols;
+        self.embeddings
+            .get(r * dim..r * dim + dim)
+            .ok_or_else(|| anyhow!("token row {r} out of range (vocab size {})", self.rows))
+    }
+
+    /// Encodes `sentences` into one flat, row-major `sentences.len() * cols`
+    /// buffer, pooling each sentence directly into the output — a single
+    /// allocation for the whole batch, with no per-sentence `Vec`.
+    pub fn encode_flat(
         &self,
         sentences: &[String],
         max_length: Option<usize>,
         batch_size: usize,
-    ) -> Result<Vec<Vec<f32>>> {
-        let mut embeddings = Vec::with_capacity(sentences.len());
+    ) -> Result<Vec<f32>> {
+        let mut out = Vec::with_capacity(sentences.len() * self.cols);
         for batch in sentences.chunks(batch_size) {
             let truncated: Vec<&str> = batch.iter().map(|text| {
                 max_length.map(|max_tok| Self::truncate_str(text, max_tok, self.median_token_length)).unwrap_or(text.as_str())
@@ -335,70 +355,55 @@ impl StaticModel {
                 if let Some(max_tok) = max_length {
                     token_ids.truncate(max_tok);
                 }
-                embeddings.push(self.pool_ids(token_ids));
+                self.pool_into(&token_ids, &mut out)?;
             }
         }
-        Ok(embeddings)
+        Ok(out)
     }
 
-    #[allow(dead_code)]
-    pub fn encode(&self, sentences: &[String]) -> Result<Vec<Vec<f32>>> {
-        self.encode_with_args(sentences, Some(512), 1024)
-    }
-
-    #[allow(dead_code)]
-    pub fn encode_single(&self, sentence: &str) -> Vec<f32> {
-        self.encode(&[sentence.to_string()])
-            .ok()
-            .and_then(|v| v.into_iter().next())
-            .unwrap_or_default()
-    }
-
-    fn pool_ids(&self, ids: Vec<u32>) -> Vec<f32> {
-        let dim = self.embeddings.ncols();
+    /// Mean-pools `ids` and appends the resulting `cols` floats to `out`. Empty
+    /// input contributes a zero vector.
+    fn pool_into(&self, ids: &[u32], out: &mut Vec<f32>) -> Result<()> {
+        let dim = self.cols;
+        let start = out.len();
+        out.resize(start + dim, 0.0);
         if ids.is_empty() {
-            return vec![0.0_f32; dim];
+            return Ok(());
         }
+        let sum = &mut out[start..start + dim];
 
-        let mut sum = vec![0.0_f32; dim];
-        
         match (&self.weights, &self.token_mapping) {
             (Some(weights), Some(mapping)) => {
-                for &id in &ids {
+                for &id in ids {
                     let tok = id as usize;
                     let row_idx = mapping.get(tok).copied().unwrap_or(tok);
                     let scale = weights.get(tok).copied().unwrap_or(1.0);
-                    let row = self.embeddings.row(row_idx);
-                    for (s, &v) in sum.iter_mut().zip(row.iter()) {
+                    for (s, &v) in sum.iter_mut().zip(self.row(row_idx)?) {
                         *s += v * scale;
                     }
                 }
             }
             (Some(weights), None) => {
-                for &id in &ids {
+                for &id in ids {
                     let tok = id as usize;
                     let scale = weights.get(tok).copied().unwrap_or(1.0);
-                    let row = self.embeddings.row(tok);
-                    for (s, &v) in sum.iter_mut().zip(row.iter()) {
+                    for (s, &v) in sum.iter_mut().zip(self.row(tok)?) {
                         *s += v * scale;
                     }
                 }
             }
             (None, Some(mapping)) => {
-                for &id in &ids {
+                for &id in ids {
                     let tok = id as usize;
                     let row_idx = mapping.get(tok).copied().unwrap_or(tok);
-                    let row = self.embeddings.row(row_idx);
-                    for (s, &v) in sum.iter_mut().zip(row.iter()) {
+                    for (s, &v) in sum.iter_mut().zip(self.row(row_idx)?) {
                         *s += v;
                     }
                 }
             }
             (None, None) => {
-                for &id in &ids {
-                    let tok = id as usize;
-                    let row = self.embeddings.row(tok);
-                    for (s, &v) in sum.iter_mut().zip(row.iter()) {
+                for &id in ids {
+                    for (s, &v) in sum.iter_mut().zip(self.row(id as usize)?) {
                         *s += v;
                     }
                 }
@@ -406,24 +411,23 @@ impl StaticModel {
         }
 
         let denom = ids.len() as f32;
-        for x in &mut sum {
+        for x in sum.iter_mut() {
             *x /= denom;
         }
-
         if self.normalize {
             let norm_sq: f32 = sum.iter().map(|&v| v * v).sum();
             if norm_sq > 1e-12 {
                 let norm = norm_sq.sqrt();
-                for x in &mut sum {
+                for x in sum.iter_mut() {
                     *x /= norm;
                 }
             }
         }
-        sum
+        Ok(())
     }
 
-    pub fn dim(&self) -> usize { self.embeddings.ncols() }
-    pub fn vocabulary_size(&self) -> usize { self.embeddings.nrows() }
+    pub fn dim(&self) -> usize { self.cols }
+    pub fn vocabulary_size(&self) -> usize { self.rows }
     pub fn is_normalized(&self) -> bool { self.normalize }
     pub fn median_token_length(&self) -> usize { self.median_token_length }
 }
