@@ -72,11 +72,11 @@ final class Model2VecUtils {
   /// Ranks [candidates] by cosine similarity to [query], most similar first,
   /// pairing each kept candidate's index with its score.
   ///
-  /// Keeps at most [topK] results; pass a [threshold] to also drop any result
-  /// scoring below it (raise [topK] to keep every match above the floor). This
-  /// is the ad-hoc counterpart to `EmbeddingIndex.search` for a list of vectors
-  /// you already hold in memory — it is the single scored search on this class;
-  /// the older index-only variants are deprecated.
+  /// Keeps at most [topK] results **even when a [threshold] is given** — the
+  /// threshold only drops matches scoring below it, it does not lift the [topK]
+  /// cap (which defaults to 5). To get *every* match above the floor, pass
+  /// `topK: candidates.length`. This is the ad-hoc counterpart to
+  /// `EmbeddingIndex.search` for a list of vectors you already hold in memory.
   static List<({int index, double score})> similaritySearchWithScores(
     Float32List query,
     List<Float32List> candidates, {
@@ -205,11 +205,17 @@ final class Model2VecUtils {
 
   /// Quantizes a normalized [Float32List] to an [Int8List].
   /// This saves 4x memory with minimal loss of accuracy for search.
+  ///
+  /// Non-finite components are handled defensively rather than throwing:
+  /// `NaN` maps to `0`, `+Infinity` to `127`, `-Infinity` to `-128`.
   static Int8List quantizeToInt8(Float32List vector) {
     final result = Int8List(vector.length);
 
     for (var i = 0; i < vector.length; i++) {
-      result[i] = (vector[i] * 127.0).round().clamp(-128, 127);
+      final v = vector[i];
+      // Map NaN to 0 (neutral) up front — round() throws on NaN. clamp() then
+      // bounds ±Infinity to the int8 limits (+Inf -> 127, -Inf -> -128).
+      result[i] = v.isNaN ? 0 : (v * 127.0).clamp(-128, 127).round();
     }
 
     return result;

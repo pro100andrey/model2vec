@@ -290,6 +290,20 @@ class EmbeddingIndex {
     final count = data.getUint32(o, Endian.little);
     o += 4;
 
+    // Reject a corrupt header that declares sizes far larger than the blob
+    // before we allocate a giant list (which would OOM past the RangeError
+    // guard below). Each entry carries at least a 4-byte id length plus `dim`
+    // vector elements, so these bounds hold for any valid blob.
+    final elemSize = quantized ? 1 : 4;
+    final remaining = bytes.length - o;
+    if (dim * elemSize > remaining ||
+        (count > 0 && count > remaining ~/ (4 + dim * elemSize))) {
+      throw ArgumentError(
+        'corrupt EmbeddingIndex blob: dim=$dim count=$count exceed '
+        '$remaining remaining bytes',
+      );
+    }
+
     final index = EmbeddingIndex(quantized: quantized);
     for (var e = 0; e < count; e++) {
       final idLen = data.getUint32(o, Endian.little);

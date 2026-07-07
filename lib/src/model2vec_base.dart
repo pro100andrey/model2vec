@@ -217,6 +217,12 @@ abstract final class Model2Vec {
   /// Only one load may run at a time (the native model is a single process
   /// global); do not start another load, or switch/unload the model, while this
   /// stream is active.
+  ///
+  /// Cancelling the stream (e.g. `break`ing out of `await for`, or
+  /// `subscription.cancel()`) stops progress events but does **not** cancel the
+  /// load: the background isolate keeps downloading and will still swap in the
+  /// new process-global model when it finishes. There is no way to abort a load
+  /// in flight — only [unloadModel] afterwards.
   static Stream<LoadProgress> loadModelWithProgress(
     String modelPath, {
     String? hfToken,

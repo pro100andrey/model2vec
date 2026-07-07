@@ -23,6 +23,10 @@ correctness. **This release is breaking** — see migration below.
   `initEmbedderAdvanced`, `initEmbedderFromBytes` and their async forms are
   removed. `Model2VecUtils.similaritySearch` /`similaritySearchWithThreshold`
   are removed in favour of `similaritySearchWithScores` (read `.index`).
+- **Batch signature.** `generateBatchEmbeddings` no longer takes `batchSize`
+  (its signature is now `(List<String> texts, {int maxLength})`). The native
+  layer batches internally; `batchSize` remains only on
+  `generateEmbeddingStream`, which still controls its per-batch size.
 
 **Improvements:**
 

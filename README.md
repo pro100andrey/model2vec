@@ -4,11 +4,11 @@
 [![CI](https://github.com/pro100andrey/model2vec/actions/workflows/ci.yml/badge.svg)](https://github.com/pro100andrey/model2vec/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-**Fast, on-device text embeddings for Dart & Flutter.** A wrapper around
-[model2vec-rs](https://github.com/MinishLab/model2vec-rs) via Rust FFI and Native
-Assets. Model2Vec turns text into vectors with a static vocabulary lookup — not a
-transformer — so embeddings are generated in **microseconds**, with no server, no
-Python, and no network after the model is cached.
+**Fast, on-device text embeddings for Dart & Flutter.** A Dart implementation of
+[Model2Vec](https://github.com/MinishLab/model2vec) with a self-contained Rust
+core (FFI + Native Assets). It turns text into vectors with a static vocabulary
+lookup — not a transformer — so embeddings are generated in **microseconds**,
+with no server, no Python, and no network after the model is cached.
 
 ## Features
 
@@ -266,6 +266,12 @@ dart format .
 dart analyze --fatal-infos
 dart test
 ```
+
+## Credits
+
+Model2Vec and the Potion models are by [MinishLab](https://github.com/MinishLab).
+This package's Rust core draws on their
+[model2vec-rs](https://github.com/MinishLab/model2vec-rs).
 
 ## License
 

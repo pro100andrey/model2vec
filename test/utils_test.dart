@@ -154,6 +154,19 @@ void main() {
         // clamp -128; 2.0*127=254 -> clamp 127.
         expect(quantized, [127, -128, 127]);
       });
+
+      test('maps non-finite input to bounds instead of throwing', () {
+        final q = Model2VecUtils.quantizeToInt8(
+          Float32List.fromList([
+            double.nan,
+            double.infinity,
+            double.negativeInfinity,
+            0.5,
+          ]),
+        );
+        // NaN -> 0, +Inf -> 127, -Inf -> -128, 0.5*127=63.5 -> 64.
+        expect(q, [0, 127, -128, 64]);
+      });
     });
 
     group('dequantizeInt8', () {

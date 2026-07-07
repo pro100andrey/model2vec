@@ -176,6 +176,19 @@ void main() {
       );
     });
 
+    test('fromBytes rejects a header dim larger than the blob (no OOM)', () {
+      // Valid magic + version, but a hostile dim that would allocate ~17 GB
+      // before any read fails — must be rejected up front as ArgumentError.
+      final blob = Uint8List.fromList([
+        0x4D, 0x32, 0x56, 0x49, // magic 'M2VI'
+        0x02, // version 2
+        0x00, // flags: not quantized
+        0xFF, 0xFF, 0xFF, 0xFF, // dim = 0xFFFFFFFF
+        0x01, 0x00, 0x00, 0x00, // count = 1
+      ]);
+      expect(() => EmbeddingIndex.fromBytes(blob), throwsArgumentError);
+    });
+
     test('removing the last entry resets the dimension to null', () {
       final index = EmbeddingIndex()..add('a', _v([1, 2, 3]));
       expect(index.dimension, 3);
