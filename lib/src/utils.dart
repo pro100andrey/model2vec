@@ -52,6 +52,7 @@ final class Model2VecUtils {
     for (var i = 0; i < a.length; i++) {
       result += a[i] * b[i];
     }
+
     return result;
   }
 
@@ -66,6 +67,7 @@ final class Model2VecUtils {
       final diff = a[i] - b[i];
       sum += diff * diff;
     }
+
     return math.sqrt(sum);
   }
 
@@ -86,6 +88,7 @@ final class Model2VecUtils {
     if (candidates.isEmpty || topK <= 0) {
       return [];
     }
+
     final scored = <({int index, double score})>[
       for (var i = 0; i < candidates.length; i++)
         (index: i, score: cosineSimilarity(query, candidates[i])),
@@ -95,6 +98,7 @@ final class Model2VecUtils {
               ? scored
               : scored.where((r) => r.score >= threshold).toList())
           ..sort((a, b) => b.score.compareTo(a.score));
+
     return ranked.take(math.min(topK, ranked.length)).toList(growable: false);
   }
 
@@ -113,9 +117,11 @@ final class Model2VecUtils {
     if (lambda < 0.0 || lambda > 1.0) {
       throw ArgumentError.value(lambda, 'lambda', 'must be in [0.0, 1.0]');
     }
+
     if (candidates.isEmpty) {
       return [];
     }
+
     final k = math.min(topK, candidates.length);
     final relevance = [for (final c in candidates) cosineSimilarity(query, c)];
     // Running max similarity of each candidate to any already-selected item,
@@ -138,8 +144,10 @@ final class Model2VecUtils {
           bestIdx = i;
         }
       }
+
       selected.add(bestIdx);
       remaining.remove(bestIdx);
+
       for (final i in remaining) {
         final sim = cosineSimilarity(candidates[i], candidates[bestIdx]);
         if (sim > maxSimToSelected[i]) {
@@ -147,6 +155,7 @@ final class Model2VecUtils {
         }
       }
     }
+
     return selected;
   }
 
@@ -166,14 +175,17 @@ final class Model2VecUtils {
     for (var i = 0; i < vector.length; i++) {
       normSq += vector[i] * vector[i];
     }
+
     if (normSq == 0.0) {
-      return Float32List.fromList(vector);
+      return .fromList(vector);
     }
+
     final norm = math.sqrt(normSq);
     final result = Float32List(vector.length);
     for (var i = 0; i < vector.length; i++) {
       result[i] = vector[i] / norm;
     }
+
     return result;
   }
 
@@ -183,6 +195,7 @@ final class Model2VecUtils {
     if (vectors.isEmpty) {
       throw ArgumentError('Cannot pool an empty list of vectors');
     }
+
     final dim = vectors.first.length;
     final result = Float32List(dim);
 
@@ -190,6 +203,7 @@ final class Model2VecUtils {
       if (v.length != dim) {
         throw ArgumentError('All vectors must have the same dimension');
       }
+
       for (var i = 0; i < dim; i++) {
         result[i] += v[i];
       }
@@ -229,6 +243,7 @@ final class Model2VecUtils {
     for (var i = 0; i < quantized.length; i++) {
       result[i] = quantized[i] / 127.0;
     }
+
     return result;
   }
 
@@ -241,7 +256,7 @@ final class Model2VecUtils {
     final bytes = base64Decode(base64String);
     final buffer = bytes.buffer;
 
-    return Float32List.view(
+    return .view(
       buffer,
       bytes.offsetInBytes,
       bytes.lengthInBytes ~/ Float32List.bytesPerElement,

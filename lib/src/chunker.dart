@@ -63,11 +63,14 @@ String _overlapTail(String chunk, int overlap) {
   if (overlap <= 0 || chunk.length <= overlap) {
     return '';
   }
+
   var start = chunk.length - overlap;
   final space = chunk.indexOf(' ', start);
   if (space == -1) {
     return ''; // the tail would be a single partial word; skip it
   }
+
   start = space + 1;
+
   return chunk.substring(start);
 }

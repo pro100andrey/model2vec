@@ -45,6 +45,7 @@ class IsolateChannel implements Channel {
   final StreamSubscription<dynamic> _subscription;
   final StreamSubscription<dynamic> _exitSubscription;
   final StreamController<Object?> _incoming;
+
   var _closed = false;
 
   /// Spawns a worker running [entryPoint] and completes the handshake.

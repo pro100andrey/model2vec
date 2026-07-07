@@ -16,8 +16,7 @@ import 'embedding_worker.dart';
 /// must not be switched while the pool is working (the one-model-per-run
 /// contract, same as the single worker).
 class EmbeddingPool {
-  EmbeddingPool._(this._workers)
-    : _inFlight = List<int>.filled(_workers.length, 0);
+  EmbeddingPool._(this._workers) : _inFlight = .filled(_workers.length, 0);
 
   final List<EmbeddingWorker> _workers;
   final List<int> _inFlight;
@@ -37,7 +36,7 @@ class EmbeddingPool {
     // Start all in parallel; if any worker fails to start, close the ones that
     // did so we never leak orphaned isolates.
     final outcomes = await Future.wait(
-      List.generate(count, (_) async {
+      .generate(count, (_) async {
         try {
           return await EmbeddingWorker.start(entryPoint: entryPoint);
         } on Object {
@@ -50,6 +49,7 @@ class EmbeddingPool {
       await Future.wait(workers.map((worker) => worker.close()));
       throw StateError('failed to start $count embedding workers');
     }
+
     return EmbeddingPool._(workers);
   }
 
@@ -61,6 +61,7 @@ class EmbeddingPool {
   }) {
     final worker = _leastBusyIndex();
     _inFlight[worker]++;
+
     return _workers[worker]
         .embedBatch(batch, maxLength: maxLength)
         .whenComplete(() => _inFlight[worker]--);
@@ -74,14 +75,12 @@ class EmbeddingPool {
   Future<List<List<Float32List>>> embedBatches(
     List<List<String>> batches, {
     int maxLength = 512,
-  }) => Future.wait(
+  }) => .wait(
     batches.map((batch) => embedBatch(batch, maxLength: maxLength)),
   );
 
   /// Tears down every worker in the pool.
-  Future<void> close() async {
-    await Future.wait(_workers.map((worker) => worker.close()));
-  }
+  Future<void> close() => .wait(_workers.map((worker) => worker.close()));
 
   int _leastBusyIndex() {
     var best = 0;
@@ -90,6 +89,7 @@ class EmbeddingPool {
         best = i;
       }
     }
+
     return best;
   }
 }

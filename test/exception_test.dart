@@ -4,15 +4,15 @@ import 'package:test/test.dart';
 void main() {
   group('Model2VecException.fromNative', () {
     // Mirrors the CODE_* constants in native/src/lib.rs.
-    const cases = {
-      1: Model2VecErrorKind.notInitialized,
-      2: Model2VecErrorKind.modelLoadFailed,
-      3: Model2VecErrorKind.initFromBytesFailed,
-      4: Model2VecErrorKind.lockPoisoned,
-      5: Model2VecErrorKind.nullArgument,
-      6: Model2VecErrorKind.tokenizationFailed,
-      7: Model2VecErrorKind.emptyResult,
-      8: Model2VecErrorKind.panic,
+    const cases = <int, Model2VecErrorKind>{
+      1: .notInitialized,
+      2: .modelLoadFailed,
+      3: .initFromBytesFailed,
+      4: .lockPoisoned,
+      5: .nullArgument,
+      6: .tokenizationFailed,
+      7: .emptyResult,
+      8: .panic,
     };
 
     for (final entry in cases.entries) {

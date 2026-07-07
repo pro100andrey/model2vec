@@ -44,7 +44,7 @@ void errorEntryPoint(SendPort mainSendPort) {
     }
     mainSendPort.send(
       const Model2VecException(
-        Model2VecErrorKind.tokenizationFailed,
+        .tokenizationFailed,
         'boom',
         6,
       ),
@@ -120,7 +120,7 @@ void failThenEchoEntryPoint(SendPort mainSendPort) {
     if (!failed) {
       failed = true;
       mainSendPort.send(
-        const Model2VecException(Model2VecErrorKind.panic, 'boom'),
+        const Model2VecException(.panic, 'boom'),
       );
       return;
     }

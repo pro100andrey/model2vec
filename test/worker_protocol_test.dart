@@ -29,7 +29,7 @@ class FakeChannel implements Channel {
   void deliver(Object? message) => _incoming.add(message);
 }
 
-Float32List _vec(List<double> xs) => Float32List.fromList(xs);
+Float32List _vec(List<double> xs) => .fromList(xs);
 
 void main() {
   group('WorkerProtocol', () {
@@ -82,11 +82,7 @@ void main() {
     test('propagates a typed Model2VecException from the worker', () async {
       final future = protocol.embedBatch(['a'], maxLength: 8);
       channel.deliver(
-        const Model2VecException(
-          Model2VecErrorKind.notInitialized,
-          'no model',
-          1,
-        ),
+        const Model2VecException(.notInitialized, 'no model', 1),
       );
 
       await expectLater(

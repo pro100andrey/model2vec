@@ -38,6 +38,7 @@ class WorkerProtocol {
   final Channel _channel;
   late final StreamSubscription<Object?> _subscription;
   final _queue = Queue<_Request>();
+
   var _inFlight = false;
   var _acceptingRequests = true;
   var _disposed = false;
@@ -49,16 +50,15 @@ class WorkerProtocol {
     required int maxLength,
   }) {
     if (!_acceptingRequests) {
-      return Future<List<Float32List>>.error(
-        const Model2VecException(
-          Model2VecErrorKind.unknown,
-          'embedding worker is closed',
-        ),
+      return .error(
+        const Model2VecException(.unknown, 'embedding worker is closed'),
       );
     }
+
     final request = _Request(batch, maxLength);
     _queue.add(request);
     _pump();
+
     return request.completer.future;
   }
 
@@ -66,6 +66,7 @@ class WorkerProtocol {
     if (_inFlight || _queue.isEmpty) {
       return;
     }
+
     _inFlight = true;
     final head = _queue.first;
     _channel.send((batch: head.batch, maxLength: head.maxLength));
@@ -75,6 +76,7 @@ class WorkerProtocol {
     if (!_inFlight || _queue.isEmpty) {
       return; // stray reply; nothing is awaiting it
     }
+
     final request = _queue.removeFirst();
     _inFlight = false;
 
@@ -97,6 +99,7 @@ class WorkerProtocol {
     if (!_acceptingRequests) {
       return;
     }
+
     _acceptingRequests = false;
     _failAll('embedding worker terminated unexpectedly');
   }
@@ -107,6 +110,7 @@ class WorkerProtocol {
     if (_disposed) {
       return;
     }
+
     _disposed = true;
     _acceptingRequests = false;
     await _subscription.cancel();
@@ -115,7 +119,7 @@ class WorkerProtocol {
   }
 
   void _failAll(String message) {
-    final error = Model2VecException(Model2VecErrorKind.unknown, message);
+    final error = Model2VecException(.unknown, message);
     while (_queue.isNotEmpty) {
       _queue.removeFirst().completer.completeError(error);
     }

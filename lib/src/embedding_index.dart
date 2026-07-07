@@ -96,6 +96,7 @@ class EmbeddingIndex {
     if (_store.isEmpty) {
       _dimension = null;
     }
+
     return removed;
   }
 
@@ -114,9 +115,11 @@ class EmbeddingIndex {
     if (topK <= 0) {
       return [];
     }
+
     if (topK >= scored.length) {
       return scored;
     }
+
     return scored.sublist(0, topK);
   }
 
@@ -135,11 +138,13 @@ class EmbeddingIndex {
     if (_store.isEmpty) {
       return [];
     }
+
     if (query.length != _dimension) {
       throw ArgumentError(
         'query length ${query.length} != index dimension $_dimension',
       );
     }
+
     final results = <SearchResult>[];
     for (final entry in _store.entries) {
       final vector = _asFloat32(entry.value.vector);
@@ -151,6 +156,7 @@ class EmbeddingIndex {
         ),
       );
     }
+
     return results;
   }
 
@@ -204,15 +210,15 @@ class EmbeddingIndex {
     o += 1;
     data.setUint8(o, _quantized ? 1 : 0);
     o += 1;
-    data.setUint32(o, dim, Endian.little);
+    data.setUint32(o, dim, .little);
     o += 4;
-    data.setUint32(o, _store.length, Endian.little);
+    data.setUint32(o, _store.length, .little);
     o += 4;
 
     var e = 0;
     for (final stored in _store.values) {
       final idBytes = idByteList[e];
-      data.setUint32(o, idBytes.length, Endian.little);
+      data.setUint32(o, idBytes.length, .little);
       o += 4;
       bytes.setRange(o, o + idBytes.length, idBytes);
       o += idBytes.length;
@@ -225,16 +231,16 @@ class EmbeddingIndex {
       } else {
         final f = stored.vector as Float32List;
         for (var i = 0; i < dim; i++) {
-          data.setFloat32(o, f[i], Endian.little);
+          data.setFloat32(o, f[i], .little);
           o += 4;
         }
       }
       final payloadBytes = payloadByteList[e++];
       if (payloadBytes == null) {
-        data.setUint32(o, _noPayload, Endian.little);
+        data.setUint32(o, _noPayload, .little);
         o += 4;
       } else {
-        data.setUint32(o, payloadBytes.length, Endian.little);
+        data.setUint32(o, payloadBytes.length, .little);
         o += 4;
         bytes.setRange(o, o + payloadBytes.length, payloadBytes);
         o += payloadBytes.length;
@@ -250,6 +256,7 @@ class EmbeddingIndex {
     if (bytes.length < 14 || !_hasMagic(bytes)) {
       throw ArgumentError('not a valid EmbeddingIndex blob');
     }
+
     try {
       return _decode(bytes);
     } on FormatException catch (e) {
@@ -269,6 +276,7 @@ class EmbeddingIndex {
         return false;
       }
     }
+
     return true;
   }
 
@@ -282,12 +290,13 @@ class EmbeddingIndex {
     if (version != 1 && version != 2) {
       throw ArgumentError('unsupported EmbeddingIndex version $version');
     }
+
     final hasPayloads = version >= 2;
     final quantized = data.getUint8(o) == 1;
     o += 1;
-    final dim = data.getUint32(o, Endian.little);
+    final dim = data.getUint32(o, .little);
     o += 4;
-    final count = data.getUint32(o, Endian.little);
+    final count = data.getUint32(o, .little);
     o += 4;
 
     // Reject a corrupt header that declares sizes far larger than the blob
@@ -306,7 +315,7 @@ class EmbeddingIndex {
 
     final index = EmbeddingIndex(quantized: quantized);
     for (var e = 0; e < count; e++) {
-      final idLen = data.getUint32(o, Endian.little);
+      final idLen = data.getUint32(o, .little);
       o += 4;
       final id = utf8.decode(bytes.sublist(o, o + idLen));
       o += idLen;
@@ -321,23 +330,27 @@ class EmbeddingIndex {
       } else {
         final f = Float32List(dim);
         for (var i = 0; i < dim; i++) {
-          f[i] = data.getFloat32(o, Endian.little);
+          f[i] = data.getFloat32(o, .little);
           o += 4;
         }
         vector = f;
       }
+
       String? payload;
       if (hasPayloads) {
-        final payloadLen = data.getUint32(o, Endian.little);
+        final payloadLen = data.getUint32(o, .little);
         o += 4;
         if (payloadLen != _noPayload) {
           payload = utf8.decode(bytes.sublist(o, o + payloadLen));
           o += payloadLen;
         }
       }
+
       index._store[id] = (vector: vector, payload: payload);
     }
+
     index._dimension = count > 0 ? dim : null;
+
     return index;
   }
 }

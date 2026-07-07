@@ -60,13 +60,13 @@ class Model2VecException implements Exception {
 ///
 /// Keep in sync with the `CODE_*` constants in `native/src/lib.rs`.
 Model2VecErrorKind _kindFromCode(int code) => switch (code) {
-  1 => Model2VecErrorKind.notInitialized,
-  2 => Model2VecErrorKind.modelLoadFailed,
-  3 => Model2VecErrorKind.initFromBytesFailed,
-  4 => Model2VecErrorKind.lockPoisoned,
-  5 => Model2VecErrorKind.nullArgument,
-  6 => Model2VecErrorKind.tokenizationFailed,
-  7 => Model2VecErrorKind.emptyResult,
-  8 => Model2VecErrorKind.panic,
-  _ => Model2VecErrorKind.unknown,
+  1 => .notInitialized,
+  2 => .modelLoadFailed,
+  3 => .initFromBytesFailed,
+  4 => .lockPoisoned,
+  5 => .nullArgument,
+  6 => .tokenizationFailed,
+  7 => .emptyResult,
+  8 => .panic,
+  _ => .unknown,
 };

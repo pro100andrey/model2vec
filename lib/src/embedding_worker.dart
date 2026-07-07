@@ -28,6 +28,7 @@ class EmbeddingWorker {
     void Function(SendPort) entryPoint = embeddingWorkerEntryPoint,
   }) async {
     final channel = await IsolateChannel.start(entryPoint);
+
     return EmbeddingWorker._(WorkerProtocol(channel));
   }
 
@@ -66,7 +67,7 @@ void embeddingWorkerEntryPoint(SendPort mainSendPort) {
     } on Model2VecException catch (e) {
       mainSendPort.send(e);
     } on Object catch (e) {
-      mainSendPort.send(Model2VecException(Model2VecErrorKind.unknown, '$e'));
+      mainSendPort.send(Model2VecException(.unknown, '$e'));
     }
   });
 }
