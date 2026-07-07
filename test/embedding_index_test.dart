@@ -59,7 +59,10 @@ void main() {
 
     test('addAll and overwrite by id replaces the stored vector', () {
       final index = EmbeddingIndex()
-        ..addAll({'a': _v([1, 0]), 'b': _v([0, 1])});
+        ..addAll({
+          'a': _v([1, 0]),
+          'b': _v([0, 1]),
+        });
       expect(index.length, 2);
 
       index.add('a', _v([0, 1])); // overwrite a's vector [1,0] -> [0,1]

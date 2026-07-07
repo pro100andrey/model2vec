@@ -4,8 +4,10 @@ import 'package:test/test.dart';
 void main() {
   group('batched', () {
     test('groups into full batches with a smaller final remainder', () async {
-      final result = await batched(Stream.fromIterable([1, 2, 3, 4, 5]), 2)
-          .toList();
+      final result = await batched(
+        Stream.fromIterable([1, 2, 3, 4, 5]),
+        2,
+      ).toList();
       expect(result, [
         [1, 2],
         [3, 4],
@@ -14,8 +16,10 @@ void main() {
     });
 
     test('an exact multiple leaves no remainder', () async {
-      final result = await batched(Stream.fromIterable([1, 2, 3, 4]), 2)
-          .toList();
+      final result = await batched(
+        Stream.fromIterable([1, 2, 3, 4]),
+        2,
+      ).toList();
       expect(result, [
         [1, 2],
         [3, 4],

@@ -49,8 +49,10 @@ Future<void> main() async {
   //    the whole dataset (or all of its vectors) in memory at once.
   final huge = Stream.fromIterable(List.generate(1000, (i) => 'Item $i'));
   var streamed = 0;
-  await for (final _
-      in Model2Vec.generateEmbeddingStream(huge, batchSize: 200)) {
+  await for (final _ in Model2Vec.generateEmbeddingStream(
+    huge,
+    batchSize: 200,
+  )) {
     streamed++;
   }
   stdout.writeln('Streamed and embedded $streamed items.');

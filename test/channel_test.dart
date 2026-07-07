@@ -20,18 +20,22 @@ void main() {
       expect(vectors.map((v) => v.first).toList(), [2.0, 1.0]);
     });
 
-    test('start fails when the worker exits before the handshake', () async {
-      await expectLater(
-        IsolateChannel.start(noHandshakeEntryPoint),
-        throwsA(
-          isA<StateError>().having(
-            (e) => e.message,
-            'message',
-            contains('exited during startup'),
+    test(
+      'start fails when the worker exits before the handshake',
+      () async {
+        await expectLater(
+          IsolateChannel.start(noHandshakeEntryPoint),
+          throwsA(
+            isA<StateError>().having(
+              (e) => e.message,
+              'message',
+              contains('exited during startup'),
+            ),
           ),
-        ),
-      );
-    }, timeout: const Timeout(Duration(seconds: 20)));
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
 
     test(
       'start rejects a non-SendPort handshake instead of hanging',
@@ -54,18 +58,22 @@ void main() {
       timeout: const Timeout(Duration(seconds: 20)),
     );
 
-    test('incoming closes when the worker exits', () async {
-      final channel = await IsolateChannel.start(dyingEntryPoint);
-      addTearDown(channel.close);
+    test(
+      'incoming closes when the worker exits',
+      () async {
+        final channel = await IsolateChannel.start(dyingEntryPoint);
+        addTearDown(channel.close);
 
-      final done = Completer<void>();
-      channel.incoming.listen((_) {}, onDone: done.complete);
-      // The dying worker closes its port (exiting) instead of replying; the
-      // exit must surface as incoming's onDone so a protocol above can't hang.
-      channel.send((batch: ['a'], maxLength: 8));
+        final done = Completer<void>();
+        channel.incoming.listen((_) {}, onDone: done.complete);
+        // The dying worker closes its port (exiting) instead of replying; the
+        // exit must surface as incoming's onDone so a protocol above can't hang.
+        channel.send((batch: ['a'], maxLength: 8));
 
-      await done.future;
-    }, timeout: const Timeout(Duration(seconds: 20)));
+        await done.future;
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
 
     test('close is idempotent', () async {
       final channel = await IsolateChannel.start(echoEntryPoint);

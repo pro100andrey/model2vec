@@ -11,15 +11,17 @@ void main() {
       expect(chunkText('   \n\t  '), isEmpty);
     });
 
-    test('splits long text and covers every word exactly once (no overlap)',
-        () {
-      final words = List.generate(40, (i) => 'token$i');
-      final chunks = chunkText(words.join(' '), maxChars: 40, overlap: 0);
+    test(
+      'splits long text and covers every word exactly once (no overlap)',
+      () {
+        final words = List.generate(40, (i) => 'token$i');
+        final chunks = chunkText(words.join(' '), maxChars: 40, overlap: 0);
 
-      expect(chunks.length, greaterThan(1));
-      final emitted = chunks.expand((c) => c.split(' ')).toList();
-      expect(emitted, equals(words)); // order preserved, no duplication
-    });
+        expect(chunks.length, greaterThan(1));
+        final emitted = chunks.expand((c) => c.split(' ')).toList();
+        expect(emitted, equals(words)); // order preserved, no duplication
+      },
+    );
 
     test('overlap re-includes boundary words', () {
       final words = List.generate(40, (i) => 'token$i').join(' ');

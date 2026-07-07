@@ -92,8 +92,8 @@ final class Model2VecUtils {
     ];
     final ranked =
         (threshold == null
-            ? scored
-            : scored.where((r) => r.score >= threshold).toList())
+              ? scored
+              : scored.where((r) => r.score >= threshold).toList())
           ..sort((a, b) => b.score.compareTo(a.score));
     return ranked.take(math.min(topK, ranked.length)).toList(growable: false);
   }

@@ -58,21 +58,28 @@ void main() {
       await worker.close();
     });
 
-    test('a request fails (does not hang) if the worker dies mid-request',
-        () async {
-      final worker = await EmbeddingWorker.start(entryPoint: dyingEntryPoint);
-      addTearDown(worker.close);
-      await expectLater(
-        worker.embedBatch(['a']),
-        throwsA(isA<Model2VecException>()),
-      );
-    }, timeout: const Timeout(Duration(seconds: 20)));
+    test(
+      'a request fails (does not hang) if the worker dies mid-request',
+      () async {
+        final worker = await EmbeddingWorker.start(entryPoint: dyingEntryPoint);
+        addTearDown(worker.close);
+        await expectLater(
+          worker.embedBatch(['a']),
+          throwsA(isA<Model2VecException>()),
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
 
-    test('start fails if the worker never completes the handshake', () async {
-      await expectLater(
-        EmbeddingWorker.start(entryPoint: noHandshakeEntryPoint),
-        throwsA(isA<StateError>()),
-      );
-    }, timeout: const Timeout(Duration(seconds: 20)));
+    test(
+      'start fails if the worker never completes the handshake',
+      () async {
+        await expectLater(
+          EmbeddingWorker.start(entryPoint: noHandshakeEntryPoint),
+          throwsA(isA<StateError>()),
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
   });
 }

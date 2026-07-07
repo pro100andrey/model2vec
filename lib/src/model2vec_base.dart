@@ -28,8 +28,7 @@ abstract final class Model2Vec {
   /// Returns the embedding dimension of the currently loaded model.
   ///
   /// Throws a [Model2VecException] if no model has been initialized yet.
-  static int get embeddingDimension =>
-      _readInt(native.get_embedding_dimension);
+  static int get embeddingDimension => _readInt(native.get_embedding_dimension);
 
   /// Returns the total number of unique tokens in the model's vocabulary.
   ///
@@ -44,8 +43,7 @@ abstract final class Model2Vec {
   /// Returns the median length (in characters) of tokens in the vocabulary.
   ///
   /// Throws a [Model2VecException] if no model has been initialized yet.
-  static int get medianTokenLength =>
-      _readInt(native.get_median_token_length);
+  static int get medianTokenLength => _readInt(native.get_median_token_length);
 
   /// Reads the current model's metadata into a [ModelInfo].
   ///

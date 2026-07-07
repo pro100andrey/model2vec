@@ -136,8 +136,9 @@ void failThenEchoEntryPoint(SendPort mainSendPort) {
 /// start failure.
 const partialStartSuccessLimit = 2;
 
-final _partialStartSlots =
-    Directory(p.join(Directory.systemTemp.path, 'm2v_partial_start_slots'));
+final _partialStartSlots = Directory(
+  p.join(Directory.systemTemp.path, 'm2v_partial_start_slots'),
+);
 
 /// Fake entry point that succeeds for the first [partialStartSuccessLimit]
 /// spawns and then exits before the handshake, so starting a larger pool leaves
@@ -159,8 +160,9 @@ int _claimStartSequence() {
   var sequence = 0;
   while (true) {
     try {
-      File(p.join(_partialStartSlots.path, 'slot_$sequence'))
-          .createSync(exclusive: true);
+      File(
+        p.join(_partialStartSlots.path, 'slot_$sequence'),
+      ).createSync(exclusive: true);
       return sequence;
     } on FileSystemException {
       sequence++;

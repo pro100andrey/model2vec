@@ -47,8 +47,7 @@ final class LoadProgress {
 
   /// Download completion in `[0.0, 1.0]`, or `null` when the total size is not
   /// known — before the download starts, on a cache hit, or for a local path.
-  double? get fraction =>
-      totalBytes > 0 ? bytesDownloaded / totalBytes : null;
+  double? get fraction => totalBytes > 0 ? bytesDownloaded / totalBytes : null;
 
   @override
   String toString() =>

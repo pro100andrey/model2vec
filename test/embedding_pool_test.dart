@@ -70,24 +70,29 @@ void main() {
       expect(counts, hasLength(pool.size));
     });
 
-    test('close rejects in-flight and queued batches without hanging',
-        () async {
-      final pool = await EmbeddingPool.start(
-        size: 2,
-        entryPoint: countingEntryPoint,
-      );
+    test(
+      'close rejects in-flight and queued batches without hanging',
+      () async {
+        final pool = await EmbeddingPool.start(
+          size: 2,
+          entryPoint: countingEntryPoint,
+        );
 
-      // Launch more batches than workers so some are queued behind others, then
-      // close before any of the (delayed) replies land.
-      final batches = [for (var i = 0; i < 5; i++) pool.embedBatch(['a'])];
-      final expectations = [
-        for (final batch in batches)
-          expectLater(batch, throwsA(isA<Model2VecException>())),
-      ];
+        // Launch more batches than workers so some are queued behind others, then
+        // close before any of the (delayed) replies land.
+        final batches = [
+          for (var i = 0; i < 5; i++) pool.embedBatch(['a']),
+        ];
+        final expectations = [
+          for (final batch in batches)
+            expectLater(batch, throwsA(isA<Model2VecException>())),
+        ];
 
-      await pool.close();
-      await Future.wait(expectations);
-    }, timeout: const Timeout(Duration(seconds: 20)));
+        await pool.close();
+        await Future.wait(expectations);
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
 
     test('recovers after a failing batch and serves later batches', () async {
       // A single worker fails its first request, then echoes. If the pool
@@ -108,22 +113,25 @@ void main() {
       expect(result.single.first, 4.0);
     });
 
-    test('start throws and cleans up when a later worker fails to spawn',
-        () async {
-      resetPartialStartSlots();
-      addTearDown(resetPartialStartSlots);
+    test(
+      'start throws and cleans up when a later worker fails to spawn',
+      () async {
+        resetPartialStartSlots();
+        addTearDown(resetPartialStartSlots);
 
-      // The pool is larger than the number of spawns the entry point lets
-      // through, so some workers start and at least one fails. start() must
-      // close the survivors and throw rather than leak orphaned isolates.
-      await expectLater(
-        EmbeddingPool.start(
-          size: partialStartSuccessLimit + 1,
-          entryPoint: flakyStartEntryPoint,
-        ),
-        throwsA(isA<StateError>()),
-      );
-    }, timeout: const Timeout(Duration(seconds: 20)));
+        // The pool is larger than the number of spawns the entry point lets
+        // through, so some workers start and at least one fails. start() must
+        // close the survivors and throw rather than leak orphaned isolates.
+        await expectLater(
+          EmbeddingPool.start(
+            size: partialStartSuccessLimit + 1,
+            entryPoint: flakyStartEntryPoint,
+          ),
+          throwsA(isA<StateError>()),
+        );
+      },
+      timeout: const Timeout(Duration(seconds: 20)),
+    );
 
     test('close tears down all workers', () async {
       final pool = await EmbeddingPool.start(

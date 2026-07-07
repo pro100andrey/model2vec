@@ -17,7 +17,7 @@ import 'embedding_worker.dart';
 /// contract, same as the single worker).
 class EmbeddingPool {
   EmbeddingPool._(this._workers)
-      : _inFlight = List<int>.filled(_workers.length, 0);
+    : _inFlight = List<int>.filled(_workers.length, 0);
 
   final List<EmbeddingWorker> _workers;
   final List<int> _inFlight;

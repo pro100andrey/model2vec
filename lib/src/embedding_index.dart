@@ -110,8 +110,7 @@ class EmbeddingIndex {
   /// Throws [ArgumentError] if [query]'s length differs from the index's
   /// [dimension]. Returns an empty list for an empty index.
   List<SearchResult> search(Float32List query, {int topK = 5}) {
-    final scored = _scoreAll(query)
-      ..sort((a, b) => b.score.compareTo(a.score));
+    final scored = _scoreAll(query)..sort((a, b) => b.score.compareTo(a.score));
     if (topK <= 0) {
       return [];
     }
@@ -127,9 +126,7 @@ class EmbeddingIndex {
     Float32List query, {
     required double threshold,
   }) {
-    final scored = _scoreAll(query)
-        .where((r) => r.score >= threshold)
-        .toList()
+    final scored = _scoreAll(query).where((r) => r.score >= threshold).toList()
       ..sort((a, b) => b.score.compareTo(a.score));
     return scored;
   }
