@@ -130,7 +130,7 @@ void main() {
         final f1 = protocol.embedBatch(['a'], maxLength: 8);
         final f2 = protocol.embedBatch(['b'], maxLength: 8);
 
-        // Attach listeners before close so the failed futures aren't reported 
+        // Attach listeners before close so the failed futures aren't reported
         // as unhandled (real callers await the future they submitted).
         final expect1 = expectLater(f1, throwsA(isA<Model2VecException>()));
         final expect2 = expectLater(f2, throwsA(isA<Model2VecException>()));
@@ -165,7 +165,7 @@ void main() {
           throwsA(isA<Model2VecException>()),
         );
         // Simulates the worker dying: the channel closes while a request is in
-        // flight, without protocol.close() first, so onDone reaches the 
+        // flight, without protocol.close() first, so onDone reaches the
         // protocol.
         await channel.close();
         await expectation;
@@ -176,7 +176,7 @@ void main() {
     test(
       'rejects new requests after the channel closes underneath',
       () async {
-        // The channel closes with nothing outstanding; a *new* request must 
+        // The channel closes with nothing outstanding; a *new* request must
         // then fail fast rather than wait for a reply that will never come.
         await channel.close();
         await expectLater(

@@ -1,3 +1,6 @@
+@Tags(['integration'])
+library;
+
 import 'package:model2vec/model2vec.dart';
 import 'package:test/test.dart';
 

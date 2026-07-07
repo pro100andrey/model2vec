@@ -309,9 +309,24 @@ To manually re-build bindings if you modify the Rust C-API (`native/src/lib.rs`)
 dart run ffigen
 ```
 
-To run the test suite:
+Running the tests:
 
 ```bash
+dart test                 # everything, incl. the model-download integration tests
+dart test -x integration  # fast lane: unit tests only, no model download
+dart test -t integration  # only the model-dependent tests
+```
+
+Integration tests (tagged `integration`) download a small model from Hugging
+Face on first run and cache it locally. CI runs formatting + analysis + the unit
+lane on every push, and the integration lane with the model cache warmed — see
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+Before pushing, mirror the CI checks locally:
+
+```bash
+dart format .
+dart analyze --fatal-infos
 dart test
 ```
 
