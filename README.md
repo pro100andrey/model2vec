@@ -251,10 +251,6 @@ Model2Vec.unloadModel();                           // releases the native model
 | `embeddingDimension` | Property returning the vector size (e.g., 256, 384, 512). |
 | `vocabularySize` | Property returning the number of tokens in the model's vocabulary. |
 
-> The `initEmbedder*` methods are deprecated aliases for `loadModel*` — the
-> lifecycle pair is now `loadModel` ⇄ `unloadModel`. The old names still work
-> and will be removed in 3.0.0.
-
 ### Math Utilities (`Model2VecUtils` class)
 
 | Method | Description |

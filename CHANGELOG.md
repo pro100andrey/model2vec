@@ -18,6 +18,11 @@ correctness. **This release is breaking** — see migration below.
   its constructor is `(kind, message, [code])` and the `fromCode` factory is
   replaced by `fromNative(code, message)`. Native failures surface the message
   produced by the Rust layer, each with an exhaustively-switchable `kind`.
+- **Lifecycle naming.** The `initEmbedder*` methods are renamed to `loadModel*`,
+  pairing `loadModel` ⇄ `unloadModel` over the model. `initEmbedder`,
+  `initEmbedderAdvanced`, `initEmbedderFromBytes` and their async forms are
+  removed. `Model2VecUtils.similaritySearch` /`similaritySearchWithThreshold`
+  are removed in favour of `similaritySearchWithScores` (read `.index`).
 
 **Improvements:**
 
@@ -57,6 +62,8 @@ correctness. **This release is breaking** — see migration below.
 | `Model2Vec.instance.generateEmbedding(t)` | `Model2Vec.generateEmbedding(t)` |
 | `Model2Vec.boot(lib)` / `Model2Vec(lib)` | removed — resolution is automatic |
 | `Model2Vec.instance.getRecommendedModels()` | `Model2Vec.recommendedModels` (typed) |
+| `Model2Vec.instance.initEmbedder(path)` | `Model2Vec.loadModel(path)` |
+| `Model2VecUtils.similaritySearch(q, c)` | `similaritySearchWithScores(q, c).map((r) => r.index)` |
 | `catch (e) { e.code }` | still works; add `e.kind` for exhaustive handling |
 
 # 1.2.0

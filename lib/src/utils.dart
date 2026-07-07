@@ -98,40 +98,6 @@ final class Model2VecUtils {
     return ranked.take(math.min(topK, ranked.length)).toList(growable: false);
   }
 
-  /// Finds the indices of the top [topK] most similar vectors in [candidates],
-  /// sorted by similarity (descending).
-  // Kept one release as a delegating shim; scheduled for removal in 3.0.0.
-  // ignore: remove_deprecations_in_breaking_versions
-  @Deprecated(
-    'Use similaritySearchWithScores and read .index. Will be removed in 3.0.0.',
-  )
-  static List<int> similaritySearch(
-    Float32List query,
-    List<Float32List> candidates, {
-    int topK = 5,
-  }) => similaritySearchWithScores(query, candidates, topK: topK)
-      .map((r) => r.index)
-      .toList(growable: false);
-
-  /// Finds the indices of every vector in [candidates] whose similarity to
-  /// [query] is `>= threshold`, sorted by similarity (descending).
-  // Kept one release as a delegating shim; scheduled for removal in 3.0.0.
-  // ignore: remove_deprecations_in_breaking_versions
-  @Deprecated(
-    'Use similaritySearchWithScores(threshold: ...) and read .index. '
-    'Will be removed in 3.0.0.',
-  )
-  static List<int> similaritySearchWithThreshold(
-    Float32List query,
-    List<Float32List> candidates, {
-    required double threshold,
-  }) => similaritySearchWithScores(
-    query,
-    candidates,
-    topK: candidates.length,
-    threshold: threshold,
-  ).map((r) => r.index).toList(growable: false);
-
   /// Reranks [candidates] against [query] with Maximal Marginal Relevance,
   /// trading off relevance (similarity to the query) against diversity
   /// (dissimilarity to already-picked results).

@@ -44,49 +44,6 @@ void main() {
       expect(() => Model2VecUtils.cosineSimilarity(a, b), throwsArgumentError);
     });
 
-    test('deprecated similaritySearch still delegates to the scored shape', () {
-      final query = Float32List.fromList([1.0, 0.0]);
-      final candidates = [
-        Float32List.fromList([0.0, 1.0]), // orthogonal
-        Float32List.fromList([0.9, 0.1]), // very similar
-        Float32List.fromList([-1.0, 0.0]), // opposite
-        Float32List.fromList([0.5, 0.5]), // somewhat similar
-      ];
-
-      // Deliberately exercises the deprecated shim to prove it delegates.
-      // ignore: deprecated_member_use_from_same_package
-      final results = Model2VecUtils.similaritySearch(
-        query,
-        candidates,
-        topK: 2,
-      );
-
-      expect(results, hasLength(2));
-      expect(results[0], equals(1)); // [0.9, 0.1]
-      expect(results[1], equals(3)); // [0.5, 0.5]
-    });
-
-    test('deprecated similaritySearchWithThreshold still delegates', () {
-      final query = Float32List.fromList([1.0, 0.0]);
-      final candidates = [
-        Float32List.fromList([0.0, 1.0]), // sim: 0.0
-        Float32List.fromList([0.9, 0.1]), // sim: ~0.99
-        Float32List.fromList([-1.0, 0.0]), // sim: -1.0
-        Float32List.fromList([0.5, 0.5]), // sim: 0.707
-      ];
-
-      // Deliberately exercises the deprecated shim to prove it delegates.
-      // ignore: deprecated_member_use_from_same_package
-      final results = Model2VecUtils.similaritySearchWithThreshold(
-        query,
-        candidates,
-        threshold: 0.8,
-      );
-
-      expect(results, hasLength(1));
-      expect(results[0], equals(1)); // only [0.9, 0.1] passes 0.8
-    });
-
     test('cosineDistance calculates correctly', () {
       final a = Float32List.fromList([1.0, 0.0]);
       final b = Float32List.fromList([0.0, 1.0]);

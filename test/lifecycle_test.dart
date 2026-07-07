@@ -33,13 +33,5 @@ void main() {
       Model2Vec.loadModel('minishlab/potion-base-2M');
       expect(Model2Vec.isInitialized, isTrue);
     });
-
-    test('deprecated initEmbedder alias still loads a model', () {
-      Model2Vec.unloadModel();
-      // Proves the back-compat shim delegates to loadModel.
-      // ignore: deprecated_member_use_from_same_package
-      Model2Vec.initEmbedder('minishlab/potion-base-2M');
-      expect(Model2Vec.isInitialized, isTrue);
-    });
   });
 }

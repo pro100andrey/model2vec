@@ -88,7 +88,7 @@ where
         .map_err(|_| FfiError::new(CODE_LOCK_POISONED, "model lock poisoned"))?;
     let model = lock
         .as_ref()
-        .ok_or_else(|| FfiError::new(CODE_NOT_INITIALIZED, "no model initialized; call initEmbedder first"))?;
+        .ok_or_else(|| FfiError::new(CODE_NOT_INITIALIZED, "no model initialized; call loadModel first"))?;
     f(model)
 }
 
