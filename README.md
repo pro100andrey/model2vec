@@ -216,17 +216,28 @@ embedding), `chunkText` (overlapping chunker), `ModelInfo`, `LoadProgress` /
 ## Performance
 
 Single-vector math runs natively in Dart with zero FFI overhead; batch generation
-uses the Rust engine's SIMD. Benchmarked on a typical machine (AOT compiled):
+uses the Rust engine's SIMD. Measured on an Apple Silicon laptop from an AOT
+`dart build` bundle, best of 3 runs (absolute numbers vary by machine):
 
 | Model | Load (cached) | Single embedding | Batch of 32 |
 | ----- | ------------- | ---------------- | ----------- |
-| `potion-base-2M` | ~40 ms | 373 μs | 3.85 ms |
-| `potion-base-4M` | ~40 ms | 364 μs | 4.19 ms |
-| `potion-base-8M` | ~40 ms | 382 μs | 5.60 ms |
-| `potion-base-32M` | ~120 ms | 453 μs | 6.79 ms |
-| `potion-multilingual-128M` | ~1050 ms | 416 μs | 5.38 ms |
+| `potion-base-2M` | 21 ms | 240 μs | 3.8 ms |
+| `potion-base-4M` | 22 ms | 248 μs | 3.8 ms |
+| `potion-base-8M` | 24 ms | 251 μs | 4.0 ms |
+| `potion-base-32M` | 66 ms | 254 μs | 4.3 ms |
+| `potion-multilingual-128M` | 841 ms | 312 μs | 4.1 ms |
 
-`similaritySearchWithScores` over 100,000 vectors takes **< 100 ms** in pure Dart.
+A single embedding is a few hundred microseconds; `similaritySearchWithScores`
+over 100,000 vectors takes **< 100 ms** in pure Dart.
+
+## Deployment
+
+The native library ships with your app automatically — nothing to link by hand:
+
+- **Flutter** (`flutter build …`) and **`dart run`** bundle and resolve it for you.
+- **Standalone CLI**: build with `dart build cli` (not `dart compile exe`, which
+  does not bundle native assets yet). The library is copied into `bundle/lib/`
+  next to the executable, so the bundle is self-contained.
 
 ## Development
 
