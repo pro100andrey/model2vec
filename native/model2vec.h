@@ -78,3 +78,18 @@ void free_floats(float* ptr, size_t len);
 int is_model_loaded();
 
 int free_embedder(char** out_error);
+
+/*
+ * Load progress
+ * -------------
+ * `get_load_progress` reports the current model load as a phase plus download
+ * byte counts. Phases (out_phase):
+ *   0 idle    1 resolving    2 downloading    3 parsing    4 done
+ * `out_downloaded` / `out_total` are 0 when unknown (before a download starts,
+ * on a cache hit, or for a local path). Any null out-param is skipped.
+ * `reset_load_progress` arms progress for a new load; call it before starting a
+ * load so a previous load's terminal state is not observed. Neither fails.
+ */
+void get_load_progress(int* out_phase, size_t* out_downloaded, size_t* out_total);
+
+void reset_load_progress(void);

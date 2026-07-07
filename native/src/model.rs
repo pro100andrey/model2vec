@@ -1,15 +1,81 @@
 use anyhow::{anyhow, Context, Result};
 use half::f16;
 use hf_hub::api::sync::{ApiBuilder, ApiRepo};
+use hf_hub::api::Progress;
+use hf_hub::Cache;
 use ndarray::{Array2, CowArray, Ix2};
 use safetensors::{tensor::Dtype, SafeTensors};
 use serde_json::Value;
 use std::borrow::Cow;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 use tokenizers::Tokenizer;
+
+// --- Load progress -------------------------------------------------------
+// Only one model is ever loading at a time (the model is a process global), so
+// progress lives in process-global atomics that any isolate can poll while the
+// load itself runs on another. The phase codes below are mirrored on the Dart
+// side (see model2vec.h and load_progress.dart).
+
+/// No load in progress.
+pub const PHASE_IDLE: u8 = 0;
+/// Locating the model files (resolving repo layout / checking the cache).
+pub const PHASE_RESOLVING: u8 = 1;
+/// Downloading the model weights from Hugging Face.
+pub const PHASE_DOWNLOADING: u8 = 2;
+/// Parsing the files and building the in-memory model.
+pub const PHASE_PARSING: u8 = 3;
+/// The model is loaded and ready.
+pub const PHASE_DONE: u8 = 4;
+
+static LOAD_PHASE: AtomicU8 = AtomicU8::new(PHASE_IDLE);
+static LOAD_DOWNLOADED: AtomicUsize = AtomicUsize::new(0);
+static LOAD_TOTAL: AtomicUsize = AtomicUsize::new(0);
+
+/// Arms progress for a fresh load: zeroes the byte counters and enters the
+/// resolving phase. Called at the start of a load and by the caller before it,
+/// so a previous load's terminal state is never observed as the new one's.
+pub fn begin_load() {
+    LOAD_DOWNLOADED.store(0, Ordering::Relaxed);
+    LOAD_TOTAL.store(0, Ordering::Relaxed);
+    LOAD_PHASE.store(PHASE_RESOLVING, Ordering::Relaxed);
+}
+
+fn set_phase(phase: u8) {
+    LOAD_PHASE.store(phase, Ordering::Relaxed);
+}
+
+/// Snapshot of the current load as `(phase, downloaded_bytes, total_bytes)`.
+pub fn load_progress() -> (u8, usize, usize) {
+    (
+        LOAD_PHASE.load(Ordering::Relaxed),
+        LOAD_DOWNLOADED.load(Ordering::Relaxed),
+        LOAD_TOTAL.load(Ordering::Relaxed),
+    )
+}
+
+/// hf-hub download sink that writes progress into the global load state.
+struct AtomicProgress;
+
+impl Progress for AtomicProgress {
+    fn init(&mut self, size: usize, _filename: &str) {
+        LOAD_TOTAL.store(size, Ordering::Relaxed);
+        LOAD_DOWNLOADED.store(0, Ordering::Relaxed);
+        LOAD_PHASE.store(PHASE_DOWNLOADING, Ordering::Relaxed);
+    }
+
+    fn update(&mut self, size: usize) {
+        LOAD_DOWNLOADED.fetch_add(size, Ordering::Relaxed);
+    }
+
+    fn finish(&mut self) {
+        let total = LOAD_TOTAL.load(Ordering::Relaxed);
+        LOAD_DOWNLOADED.store(total, Ordering::Relaxed);
+    }
+}
 
 /// Static embedding model for Model2Vec
 #[derive(Debug, Clone)]
@@ -68,6 +134,8 @@ fn is_not_found(e: &hf_hub::api::sync::ApiError) -> bool {
 
 fn match_hub_layout(
     repo: &ApiRepo,
+    cache: &Cache,
+    repo_id: &str,
     config_prefix: &str,
     model_prefix: &str,
     config_file: &str,
@@ -81,8 +149,29 @@ fn match_hub_layout(
     };
     let Some(config) = fetch(format!("{config_prefix}{config_file}"))? else { return Ok(None); };
     let Some(tokenizer) = fetch(format!("{model_prefix}tokenizer.json"))? else { return Ok(None); };
-    let Some(model) = fetch(format!("{model_prefix}model.safetensors"))? else { return Ok(None); };
+    let model_file = format!("{model_prefix}model.safetensors");
+    let Some(model) = fetch_weights_with_progress(repo, cache, repo_id, model_file)? else { return Ok(None); };
     Ok(Some(ModelFiles { tokenizer, model, config }))
+}
+
+/// Fetches the (large) weights file, reporting download progress on a cache
+/// miss. A cache hit returns immediately with no download and no progress —
+/// mirroring `ApiRepo::get`, which we can't reuse because it downloads without
+/// a progress hook.
+fn fetch_weights_with_progress(
+    repo: &ApiRepo,
+    cache: &Cache,
+    repo_id: &str,
+    filename: String,
+) -> Result<Option<PathBuf>> {
+    if let Some(path) = cache.model(repo_id.to_owned()).get(&filename) {
+        return Ok(Some(path));
+    }
+    match repo.download_with_progress(&filename, AtomicProgress) {
+        Ok(path) => Ok(Some(path)),
+        Err(e) if is_not_found(&e) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
 fn resolve_local_model_files(folder: &Path) -> Option<ModelFiles> {
@@ -92,7 +181,7 @@ fn resolve_local_model_files(folder: &Path) -> Option<ModelFiles> {
         .or_else(|| folder.parent().and_then(|p| match_local_layout(p, folder, "config_sentence_transformers.json")))
 }
 
-fn resolve_hub_model_files(repo: &ApiRepo, prefix: &str) -> Result<ModelFiles> {
+fn resolve_hub_model_files(repo: &ApiRepo, cache: &Cache, repo_id: &str, prefix: &str) -> Result<ModelFiles> {
     let sub_prefix = format!("{prefix}0_StaticEmbedding/");
     let trimmed = prefix.trim_end_matches('/');
     let parent = match Path::new(trimmed).parent() {
@@ -100,10 +189,10 @@ fn resolve_hub_model_files(repo: &ApiRepo, prefix: &str) -> Result<ModelFiles> {
         _ => String::new(),
     };
 
-    if let Some(f) = match_hub_layout(repo, prefix, prefix, "config.json")? { return Ok(f); }
-    if let Some(f) = match_hub_layout(repo, prefix, prefix, "config_sentence_transformers.json")? { return Ok(f); }
-    if let Some(f) = match_hub_layout(repo, prefix, &sub_prefix, "config_sentence_transformers.json")? { return Ok(f); }
-    match_hub_layout(repo, &parent, prefix, "config_sentence_transformers.json")?
+    if let Some(f) = match_hub_layout(repo, cache, repo_id, prefix, prefix, "config.json")? { return Ok(f); }
+    if let Some(f) = match_hub_layout(repo, cache, repo_id, prefix, prefix, "config_sentence_transformers.json")? { return Ok(f); }
+    if let Some(f) = match_hub_layout(repo, cache, repo_id, prefix, &sub_prefix, "config_sentence_transformers.json")? { return Ok(f); }
+    match_hub_layout(repo, cache, repo_id, &parent, prefix, "config_sentence_transformers.json")?
         .ok_or_else(|| anyhow!("no valid model layout found in '{prefix}'"))
 }
 
@@ -169,11 +258,15 @@ impl StaticModel {
         normalize: Option<bool>,
         subfolder: Option<&str>,
     ) -> Result<Self> {
+        begin_load();
         let files = resolve_model_files(repo_or_path, token, cache_dir, subfolder)?;
+        set_phase(PHASE_PARSING);
         let tokenizer_bytes = fs::read(&files.tokenizer).context("failed to read tokenizer.json")?;
         let model_bytes = fs::read(&files.model).context("failed to read model.safetensors")?;
         let config_bytes = fs::read(&files.config).context("failed to read config.json")?;
-        Self::from_bytes(tokenizer_bytes, model_bytes, config_bytes, normalize)
+        let model = Self::from_bytes(tokenizer_bytes, model_bytes, config_bytes, normalize)?;
+        set_phase(PHASE_DONE);
+        Ok(model)
     }
 
     pub fn from_owned(
@@ -350,15 +443,22 @@ fn resolve_model_files<P: AsRef<Path>>(
 }
 
 fn download_model_files(repo_id: &str, token: Option<&str>, cache_dir: Option<&Path>, subfolder: Option<&str>) -> Result<ModelFiles> {
-    let mut builder = ApiBuilder::new();
+    // Own the cache so we can both drive the hf-hub API and check it directly
+    // for a weights cache hit (matching ApiBuilder: default location, or the
+    // caller's cache_dir).
+    let cache = match cache_dir {
+        Some(path) => Cache::new(path.to_path_buf()),
+        None => Cache::default(),
+    };
+    let mut builder = ApiBuilder::from_cache(cache.clone());
     if let Some(tok) = token { builder = builder.with_token(Some(tok.to_string())); }
-    if let Some(path) = cache_dir { builder = builder.with_cache_dir(path.to_path_buf()); }
-    
+
     let result = (|| {
         let api = builder.build().context("hf-hub API init failed")?;
         let repo = api.model(repo_id.to_owned());
         let prefix = subfolder.map(|s| format!("{s}/")).unwrap_or_default();
-        resolve_hub_model_files(&repo, &prefix).with_context(|| format!("could not load '{repo_id}' from HF"))
+        resolve_hub_model_files(&repo, &cache, repo_id, &prefix)
+            .with_context(|| format!("could not load '{repo_id}' from HF"))
     })();
     result
 }

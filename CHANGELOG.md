@@ -52,6 +52,11 @@ correctness. **This release is breaking** — see migration below.
   `Model2Vec.unloadModel()` (free the native model), `Model2Vec.modelInfo`
   (all metadata in one `ModelInfo`), and `Model2VecUtils.dequantizeInt8`
   (the inverse of `quantizeToInt8`).
+- **Load progress.** `Model2Vec.loadModelWithProgress()` loads on a background
+  isolate and returns a `Stream<LoadProgress>` reporting the HF weights download
+  (`bytesDownloaded` / `totalBytes` / `fraction`) plus a coarse `LoadPhase`
+  (resolving → downloading → parsing → done). A cached model or local path
+  streams straight to `done`.
 - **Parallel worker pool.** `EmbeddingPool` fans batches across N worker
   isolates to embed concurrently across CPU cores.
 

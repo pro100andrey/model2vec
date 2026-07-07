@@ -154,3 +154,19 @@ external int is_model_loaded();
 external int free_embedder(
   ffi.Pointer<ffi.Pointer<ffi.Char>> out_error,
 );
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Int>,
+    ffi.Pointer<ffi.Size>,
+    ffi.Pointer<ffi.Size>,
+  )
+>()
+external void get_load_progress(
+  ffi.Pointer<ffi.Int> out_phase,
+  ffi.Pointer<ffi.Size> out_downloaded,
+  ffi.Pointer<ffi.Size> out_total,
+);
+
+@ffi.Native<ffi.Void Function()>()
+external void reset_load_progress();

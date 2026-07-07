@@ -358,6 +358,30 @@ pub extern "C" fn free_floats(ptr: *mut f32, len: usize) {
     }
 }
 
+/// Writes the current load progress into the out-params. Never fails; any null
+/// out-param is skipped. `out_phase` is a load phase code (0 idle, 1 resolving,
+/// 2 downloading, 3 parsing, 4 done); the byte counts are 0 when unknown (before
+/// a download starts, on a cache hit, or for a local path).
+#[no_mangle]
+pub extern "C" fn get_load_progress(
+    out_phase: *mut i32,
+    out_downloaded: *mut usize,
+    out_total: *mut usize,
+) {
+    let (phase, downloaded, total) = model::load_progress();
+    write_i32(out_phase, phase as i32);
+    write_usize(out_downloaded, downloaded);
+    write_usize(out_total, total);
+}
+
+/// Arms progress tracking for a new load. Call this on the polling side before
+/// starting the load so a previous load's terminal state isn't observed as the
+/// new one's. Never fails.
+#[no_mangle]
+pub extern "C" fn reset_load_progress() {
+    model::begin_load();
+}
+
 /// Returns 1 if a model is currently loaded, 0 otherwise. Never fails: a
 /// poisoned lock is reported as "not loaded".
 #[no_mangle]

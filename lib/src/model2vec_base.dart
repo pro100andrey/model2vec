@@ -8,6 +8,7 @@ import 'package:ffi/ffi.dart';
 import 'batcher.dart';
 import 'embedding_worker.dart';
 import 'exception.dart';
+import 'load_progress.dart';
 import 'model2vec_bindings.g.dart' as native;
 import 'model_info.dart';
 import 'recommended_model.dart';
@@ -201,6 +202,94 @@ abstract final class Model2Vec {
       subfolder: subfolder,
     ),
   );
+
+  /// Loads a model on a background isolate, reporting progress as a stream of
+  /// [LoadProgress] snapshots.
+  ///
+  /// Like [loadModelAdvancedAsync] the load runs off-thread so the calling
+  /// isolate stays responsive; this method additionally polls the native load
+  /// state and yields a snapshot roughly every [pollInterval]. The stream's
+  /// final event is always [LoadPhase.done]; if the load fails the stream emits
+  /// that error instead. Options mirror [loadModelAdvanced].
+  ///
+  /// Meaningful byte progress only appears while downloading the weights on a
+  /// first (uncached) load — an already-cached model or a local path moves
+  /// straight to [LoadPhase.done] with no byte counts.
+  ///
+  /// Only one load may run at a time (the native model is a single process
+  /// global); do not start another load, or switch/unload the model, while this
+  /// stream is active.
+  static Stream<LoadProgress> loadModelWithProgress(
+    String modelPath, {
+    String? hfToken,
+    String? cacheDirectory,
+    bool? normalize,
+    String? subfolder,
+    Duration pollInterval = const Duration(milliseconds: 100),
+  }) async* {
+    // Arm progress on this isolate before the load starts, so a previous load's
+    // terminal state is never observed as this one's opening event.
+    native.reset_load_progress();
+
+    final load = loadModelAdvancedAsync(
+      modelPath: modelPath,
+      hfToken: hfToken,
+      cacheDirectory: cacheDirectory,
+      normalize: normalize,
+      subfolder: subfolder,
+    );
+
+    // Mirror completion into a flag and a void future the poll loop can race
+    // against. Errors are swallowed here (re-thrown via `await load` below), so
+    // this future never completes with an error.
+    var finished = false;
+    final done = load.then<void>(
+      (_) => finished = true,
+      onError: (_, _) => finished = true,
+    );
+
+    while (!finished) {
+      yield _readLoadProgress(terminal: false);
+      // Wake on whichever comes first: the next poll tick or load completion.
+      await Future.any<void>([Future<void>.delayed(pollInterval), done]);
+    }
+
+    // Surface a load failure to the stream consumer.
+    await load;
+
+    // Terminal event: the model is loaded and ready.
+    yield _readLoadProgress(terminal: true);
+  }
+
+  /// Reads a [LoadProgress] snapshot from native load state. While polling
+  /// ([terminal] false) a native `done` is clamped to [LoadPhase.parsing] so
+  /// the only [LoadPhase.done] a consumer observes is the terminal event
+  /// emitted once the load future has actually completed.
+  static LoadProgress _readLoadProgress({required bool terminal}) =>
+      using((arena) {
+        final outPhase = arena<Int>();
+        final outDownloaded = arena<Size>();
+        final outTotal = arena<Size>();
+        native.get_load_progress(outPhase, outDownloaded, outTotal);
+
+        var phase = _loadPhaseFromCode(outPhase.value);
+        if (!terminal && phase == LoadPhase.done) {
+          phase = LoadPhase.parsing;
+        }
+        return LoadProgress(
+          phase: phase,
+          bytesDownloaded: outDownloaded.value,
+          totalBytes: outTotal.value,
+        );
+      });
+
+  /// Maps a native load-phase code (see `native/model2vec.h`) to a [LoadPhase].
+  static LoadPhase _loadPhaseFromCode(int code) => switch (code) {
+    2 => LoadPhase.downloading,
+    3 => LoadPhase.parsing,
+    4 => LoadPhase.done,
+    _ => LoadPhase.resolving, // 0 idle, 1 resolving
+  };
 
   /// Unloads the active model and frees its native memory.
   ///

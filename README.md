@@ -147,6 +147,22 @@ final embedding = await Model2Vec.generateEmbeddingAsync('A very long text...');
 final batch = await Model2Vec.generateBatchEmbeddingsAsync(['A', 'B', 'C']);
 ```
 
+Want a progress bar for that first download? `loadModelWithProgress` loads on a background isolate and streams `LoadProgress` snapshots. Byte counts appear while the weights download (a cached model or local path jumps straight to `done`); the stream always ends on `LoadPhase.done` and surfaces any load failure as an error event.
+
+```dart
+await for (final p in Model2Vec.loadModelWithProgress('minishlab/potion-base-2M')) {
+  switch (p.phase) {
+    case LoadPhase.downloading:
+      // p.fraction is 0.0..1.0, or null until the total size is known.
+      print('Downloading ${((p.fraction ?? 0) * 100).toStringAsFixed(0)}%');
+    case LoadPhase.resolving || LoadPhase.parsing:
+      print('Preparing…');
+    case LoadPhase.done:
+      print('Ready');
+  }
+}
+```
+
 ### 4. Vector Math & Quantization
 
 The library ships with `Model2VecUtils` — a powerful suite of math operations tuned for embeddings.
@@ -239,6 +255,7 @@ Model2Vec.unloadModel();                           // releases the native model
 | `loadModelFromBytes(...)` | Loads the model directly from raw `Uint8List` bytes (`model.safetensors`, `tokenizer.json`, etc). |
 | `loadModelAsync(path)` | Loads a model on a background isolate; await it so the first download never blocks the UI. |
 | `loadModelAdvancedAsync(...)` | Async form of `loadModelAdvanced` (background isolate). |
+| `loadModelWithProgress(path)` | Loads on a background isolate and returns a `Stream<LoadProgress>` reporting download progress; ends on `LoadPhase.done`. |
 | `recommendedModels` | A typed `List<RecommendedModel>` catalog of officially recommended Potion models (offline). |
 | `tokenize(text)` | Runs the internal BPE tokenizer and returns a `List<String>`. |
 | `generateEmbedding(text)` | Synchronously generates a `Float32List` embedding vector. |
