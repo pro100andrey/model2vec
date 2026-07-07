@@ -57,14 +57,21 @@ void main() {
       expect(EmbeddingIndex().search(_v([1, 0])), isEmpty);
     });
 
-    test('addAll and overwrite by id', () {
+    test('addAll and overwrite by id replaces the stored vector', () {
       final index = EmbeddingIndex()
         ..addAll({'a': _v([1, 0]), 'b': _v([0, 1])});
       expect(index.length, 2);
 
-      index.add('a', _v([0, 1])); // overwrite
-      expect(index.length, 2);
-      expect(index.search(_v([0, 1]), topK: 1).first.id, anyOf('a', 'b'));
+      index.add('a', _v([0, 1])); // overwrite a's vector [1,0] -> [0,1]
+      expect(index.length, 2); // no new entry, still 2
+
+      double scoreOf(String id, Float32List query) =>
+          index.search(query, topK: 2).firstWhere((h) => h.id == id).score;
+
+      // The overwrite took effect: 'a' now matches its new vector and no
+      // longer matches the old one.
+      expect(scoreOf('a', _v([0, 1])), closeTo(1.0, 1e-6));
+      expect(scoreOf('a', _v([1, 0])), closeTo(0.0, 1e-6));
     });
 
     test('dimension mismatch throws on add and on query', () {
@@ -130,17 +137,53 @@ void main() {
       expect(restored.contains(longId), isTrue);
     });
 
-    test('fromBytes rejects a high-byte / truncated blob with ArgumentError',
-        () {
+    test('fromBytes rejects a blob with a bad magic byte', () {
       expect(
         () => EmbeddingIndex.fromBytes(Uint8List(14)..[0] = 0xFF),
         throwsArgumentError,
       );
+    });
+
+    test('fromBytes rejects a truncated blob', () {
       final full = (EmbeddingIndex()..add('a', _v([1, 2, 3, 4]))).toBytes();
       expect(
         () => EmbeddingIndex.fromBytes(full.sublist(0, full.length - 2)),
         throwsArgumentError,
       );
+    });
+
+    test('fromBytes rejects an unsupported version byte', () {
+      // Magic-valid header, but version 3 is beyond what the decoder reads.
+      final blob = Uint8List.fromList([
+        0x4D, 0x32, 0x56, 0x49, // magic 'M2VI'
+        0x03, // version 3 (unsupported)
+        0x00, // flags: not quantized
+        0x00, 0x00, 0x00, 0x00, // dim = 0
+        0x00, 0x00, 0x00, 0x00, // count = 0
+      ]);
+      expect(
+        () => EmbeddingIndex.fromBytes(blob),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('unsupported EmbeddingIndex version'),
+          ),
+        ),
+      );
+    });
+
+    test('removing the last entry resets the dimension to null', () {
+      final index = EmbeddingIndex()..add('a', _v([1, 2, 3]));
+      expect(index.dimension, 3);
+
+      expect(index.remove('a'), isTrue);
+      expect(index.isEmpty, isTrue);
+      expect(index.dimension, isNull);
+
+      // A cleared dimension lets a different-dim vector be added afresh.
+      index.add('b', _v([1, 0]));
+      expect(index.dimension, 2);
     });
 
     test('negative topK returns empty', () {
@@ -189,6 +232,20 @@ void main() {
         };
         expect(byId['empty'], '');
         expect(byId['none'], isNull);
+      });
+
+      test('a multibyte UTF-8 id and payload round-trip exactly', () {
+        // Guards the byte-vs-char offset math: both id and payload contain
+        // multibyte code points (CJK + emoji).
+        const id = '文書-😀';
+        const payload = '説明: café ☕';
+        final index = EmbeddingIndex()..add(id, _v([1, 0]), payload: payload);
+
+        final restored = EmbeddingIndex.fromBytes(index.toBytes());
+        expect(restored.contains(id), isTrue);
+        final hit = restored.search(_v([1, 0])).single;
+        expect(hit.id, id);
+        expect(hit.payload, payload);
       });
 
       test('quantized index carries payloads too', () {

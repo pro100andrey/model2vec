@@ -103,7 +103,10 @@ class IsolateChannel implements Channel {
       receivePort.close();
       exitPort.close();
       if (!incoming.isClosed) {
-        await incoming.close();
+        // No one has listened to [incoming] yet (start hasn't returned), and a
+        // single-subscription controller's close() future never completes
+        // without a listener — so fire-and-forget instead of awaiting a hang.
+        unawaited(incoming.close());
       }
       isolate.kill(priority: Isolate.immediate);
       rethrow;
@@ -141,7 +144,13 @@ class IsolateChannel implements Channel {
     _receivePort.close();
     _exitPort.close();
     if (!_incoming.isClosed) {
-      await _incoming.close();
+      // Awaiting close() only completes once a listener drains the done event;
+      // an unlistened single-subscription controller would hang here forever.
+      if (_incoming.hasListener) {
+        await _incoming.close();
+      } else {
+        unawaited(_incoming.close());
+      }
     }
   }
 }

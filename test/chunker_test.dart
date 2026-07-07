@@ -42,6 +42,15 @@ void main() {
       }
     });
 
+    test('a word longer than maxChars becomes its own intact chunk', () {
+      final longWord = 'a' * 50;
+      final chunks = chunkText('short $longWord', maxChars: 20, overlap: 0);
+
+      expect(chunks, ['short', longWord]);
+      // The oversized word is kept whole, exceeding maxChars rather than split.
+      expect(chunks.last.length, 50);
+    });
+
     test('validates arguments', () {
       expect(() => chunkText('a', maxChars: 0), throwsArgumentError);
       expect(

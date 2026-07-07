@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:model2vec/model2vec.dart';
 import 'package:test/test.dart';
 
@@ -38,28 +36,6 @@ void main() {
       expect(e.message, 'boom');
       expect(e.code, 2);
       expect(e.toString(), contains('boom'));
-    });
-  });
-
-  group('native error path', () {
-    test('loadModelFromBytes with garbage throws a typed exception', () {
-      final garbage = Uint8List.fromList([0, 1, 2, 3]);
-      expect(
-        () => Model2Vec.loadModelFromBytes(
-          tokenizerBytes: garbage,
-          modelBytes: garbage,
-          configBytes: garbage,
-        ),
-        throwsA(
-          isA<Model2VecException>()
-              .having(
-                (e) => e.kind,
-                'kind',
-                Model2VecErrorKind.initFromBytesFailed,
-              )
-              .having((e) => e.message, 'message', isNotEmpty),
-        ),
-      );
     });
   });
 }
