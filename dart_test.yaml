@@ -1,0 +1,12 @@
+# The native layer keeps a single active model per process. The model-switching
+# test mutates that global, so suites must run one at a time — otherwise a
+# parallel suite can read a model of the wrong dimension mid-switch.
+concurrency: 1
+
+tags:
+  # Tests that download a model from Hugging Face (network + native model
+  # load). Excluded from the fast lane via `dart test -x integration`; run on
+  # their own with `dart test -t integration`. Given extra time for cold-cache
+  # downloads on CI.
+  integration:
+    timeout: 2x

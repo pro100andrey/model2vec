@@ -12,32 +12,18 @@ late List<String> batchTexts;
 class EmbeddingBenchmark extends BenchmarkBase {
   EmbeddingBenchmark() : super('Single');
 
-  late Model2Vec m2v;
-
-  @override
-  void setup() {
-    m2v = Model2Vec.instance;
-  }
-
   @override
   void run() {
-    m2v.generateEmbedding(testText);
+    Model2Vec.generateEmbedding(testText);
   }
 }
 
 class BatchEmbeddingBenchmark extends BenchmarkBase {
   BatchEmbeddingBenchmark() : super('Batch (32)');
 
-  late Model2Vec m2v;
-
-  @override
-  void setup() {
-    m2v = Model2Vec.instance;
-  }
-
   @override
   void run() {
-    m2v.generateBatchEmbeddings(batchTexts);
+    Model2Vec.generateBatchEmbeddings(batchTexts);
   }
 }
 
@@ -58,11 +44,10 @@ void main() {
       'Warming up models (Downloading to cache, this may take a while)...',
     );
 
-  final m2v = Model2Vec.instance;
   for (final model in models) {
     stdout.write('Warming up $model... ');
     final watch = Stopwatch()..start();
-    m2v.initEmbedder(model);
+    Model2Vec.loadModel(model);
     watch.stop();
     stdout.writeln('Done in ${watch.elapsedMilliseconds} ms.');
   }
@@ -77,7 +62,7 @@ void main() {
   for (final model in models) {
     // Measure Load Time (Already cached)
     final watch = Stopwatch()..start();
-    m2v.initEmbedder(model);
+    Model2Vec.loadModel(model);
     watch.stop();
     final loadTime = '${watch.elapsedMilliseconds} ms';
 

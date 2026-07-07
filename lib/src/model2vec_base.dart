@@ -1,277 +1,364 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
-import 'package:path/path.dart' as p;
 
+import 'batcher.dart';
+import 'embedding_worker.dart';
 import 'exception.dart';
-import 'model2vec_bindings.g.dart';
+import 'load_progress.dart';
+import 'model2vec_bindings.g.dart' as native;
+import 'model_info.dart';
+import 'recommended_model.dart';
 
 /// The main entry point for the Model2Vec library.
 ///
-/// This class provides methods to initialize the embedder, generate text
-/// embeddings, and access model metadata like vocabulary size and dimensions.
-class Model2Vec {
-  /// Creates a new instance of [Model2Vec] using the provided [library].
-  ///
-  /// In most cases, you should use the shared [instance] instead of
-  /// creating a new one manually.
-  Model2Vec(DynamicLibrary library) : _bindings = Model2VecBindings(library);
-
-  static Model2Vec? _instance;
-
-  final Model2VecBindings _bindings;
-  int? _cachedDimension;
-
-  /// Manually initializes the shared [instance] with a specific [library].
-  ///
-  /// This is useful if you need to load the native library from a custom
-  /// location or if automatic resolution fails.
-  static void boot(DynamicLibrary library) {
-    _instance = Model2Vec(library);
-  }
-
-  /// A shared singleton instance of [Model2Vec].
-  ///
-  /// When accessed for the first time, it attempts to automatically resolve
-  /// and load the native library using [Platform.isLinux], [Platform.isMacOS],
-  /// and [Platform.isWindows] to determine the correct library filename.
-  ///
-  /// Throws a [Model2VecException] if the library cannot be found.
-  static Model2Vec get instance {
-    if (_instance != null) {
-      return _instance!;
-    }
-
-    final libPath = _resolveLibPath();
-    try {
-      final library = DynamicLibrary.open(libPath);
-      _instance = Model2Vec(library);
-
-      return _instance!;
-    } catch (e) {
-      throw Model2VecException(
-        'Failed to auto-load Model2Vec native library "$libPath".\n'
-        'Please ensure you have built the Rust library '
-        '(cd native && cargo build --release)\n'
-        'or that the shared object is placed in a system library path.\n'
-        'Underlying error: $e',
-      );
-    }
-  }
+/// The native layer keeps a single active model per process, so this type is a
+/// stateless namespace of static operations rather than something you
+/// instantiate. The native library is located automatically through the Dart
+/// SDK's code-asset resolver — there is nothing to boot or inject.
+// ignore: avoid_classes_with_only_static_members
+abstract final class Model2Vec {
+  /// Whether a model is currently loaded. Unlike the metadata getters, this
+  /// never throws — use it to guard calls before a model is initialized.
+  static bool get isInitialized => native.is_model_loaded() == 1;
 
   /// Returns the embedding dimension of the currently loaded model.
   ///
   /// Throws a [Model2VecException] if no model has been initialized yet.
-  int get embeddingDimension {
-    if (_cachedDimension != null) {
-      return _cachedDimension!;
-    }
-
-    final dim = _bindings.get_embedding_dimension();
-    if (dim <= 0) {
-      throw const Model2VecException(
-        'No model initialized. Call initEmbedder() before accessing dimension.',
-      );
-    }
-
-    _cachedDimension = dim;
-
-    return dim;
-  }
+  static int get embeddingDimension => _readInt(native.get_embedding_dimension);
 
   /// Returns the total number of unique tokens in the model's vocabulary.
   ///
   /// Throws a [Model2VecException] if no model has been initialized yet.
-  int get vocabularySize {
-    final size = _bindings.get_vocabulary_size();
-    if (size < 0) {
-      throw const Model2VecException(
-        'Failed to get vocabulary size. Is a model initialized?',
-      );
-    }
+  static int get vocabularySize => _readInt(native.get_vocabulary_size);
 
-    return size;
-  }
-
-  /// Returns `true` if the model is configured to L2-normalize output
-  /// embeddings.
-  bool get isNormalized => _bindings.is_normalized() == 1;
+  /// Returns `true` if the model L2-normalizes its output embeddings.
+  ///
+  /// Throws a [Model2VecException] if no model has been initialized yet.
+  static bool get isNormalized => _readInt(native.is_normalized) == 1;
 
   /// Returns the median length (in characters) of tokens in the vocabulary.
   ///
   /// Throws a [Model2VecException] if no model has been initialized yet.
-  int get medianTokenLength {
-    final length = _bindings.get_median_token_length();
+  static int get medianTokenLength => _readInt(native.get_median_token_length);
 
-    if (length < 0) {
-      throw const Model2VecException('Failed to get median token length.');
-    }
+  /// Reads the current model's metadata into a [ModelInfo].
+  ///
+  /// Reflects the model loaded at call time; do not switch or unload the model
+  /// concurrently. Throws a [Model2VecException] if no model is loaded.
+  static ModelInfo get modelInfo => ModelInfo(
+    dimension: embeddingDimension,
+    vocabularySize: vocabularySize,
+    isNormalized: isNormalized,
+    medianTokenLength: medianTokenLength,
+  );
 
-    return length;
-  }
+  static int _readInt(
+    int Function(Pointer<Int>, Pointer<Pointer<Char>>) fn,
+  ) => using((arena) {
+    final outValue = arena<Int>();
+    final outError = arena<Pointer<Char>>();
+    _check(fn(outValue, outError), outError);
+    return outValue.value;
+  });
 
   /// Tokenizes the input [text] into a list of strings.
   ///
-  /// Throws a [Model2VecException] if tokenization fails or if no model is
-  /// initialized.
-  List<String> tokenize(String text) => using((arena) {
-    final textPtr = text.toNativeUtf8(allocator: arena);
-    final resPtr = _bindings.tokenize(textPtr.cast<Char>());
+  /// Throws a [Model2VecException] if tokenization fails or no model is loaded.
+  static List<String> tokenize(String text) => using((arena) {
+    final textPtr = text.toNativeUtf8(allocator: arena).cast<Char>();
+    final outJson = arena<Pointer<Char>>();
+    final outError = arena<Pointer<Char>>();
 
-    if (resPtr == nullptr) {
-      throw const Model2VecException('Tokenization failed.');
-    }
+    _check(native.tokenize(textPtr, outJson, outError), outError);
 
+    final jsonPtr = outJson.value;
     try {
-      final jsonString = resPtr.cast<Utf8>().toDartString();
-      return .from(json.decode(jsonString) as List);
+      final jsonString = jsonPtr.cast<Utf8>().toDartString();
+      return List<String>.from(json.decode(jsonString) as List);
     } finally {
-      _bindings.free_string(resPtr);
+      native.free_string(jsonPtr);
     }
   });
 
-  /// Initializes a model from a Hugging Face repo ID or a local directory path.
+  /// Loads a model from a Hugging Face repo id or a local directory path,
+  /// replacing any currently active model.
   ///
-  /// [modelPath] can be either a repo ID like 'minishlab/potion-base-8M'
-  /// or a path to a directory containing `model.safetensors`, `config.json`,
-  /// and `tokenizer.json`.
-  void initEmbedder(String modelPath) =>
-      initEmbedderAdvanced(modelPath: modelPath);
+  /// [modelPath] can be a repo id like `minishlab/potion-base-8M` or a path to
+  /// a directory containing `model.safetensors`, `config.json` and
+  /// `tokenizer.json`.
+  ///
+  /// This is synchronous and blocks the calling isolate for the whole load,
+  /// including the first download. Use [loadModelAsync] to load off-thread.
+  static void loadModel(String modelPath) =>
+      loadModelAdvanced(modelPath: modelPath);
 
-  /// Advanced model initialization with additional options.
+  /// Advanced model loading with additional options.
   ///
-  /// - [modelPath]: Repo ID or local path.
+  /// - [modelPath]: Repo id or local path.
   /// - [hfToken]: Optional Hugging Face API token for private repos.
   /// - [cacheDirectory]: Optional path to store downloaded models.
   /// - [normalize]: Whether to L2-normalize output embeddings.
   /// - [subfolder]: Optional subfolder within the repo/path.
-  void initEmbedderAdvanced({
+  static void loadModelAdvanced({
     required String modelPath,
     String? hfToken,
     String? cacheDirectory,
     bool? normalize,
     String? subfolder,
-  }) {
-    using((arena) {
-      final pathPtr = modelPath.toNativeUtf8(allocator: arena);
-      final tokenPtr = hfToken?.toNativeUtf8(allocator: arena) ?? nullptr;
-      final cachePtr =
-          cacheDirectory?.toNativeUtf8(allocator: arena) ?? nullptr;
-      final subPtr = subfolder?.toNativeUtf8(allocator: arena) ?? nullptr;
-      final normInt = normalize == null ? -1 : (normalize ? 1 : 0);
+  }) => using((arena) {
+    final pathPtr = modelPath.toNativeUtf8(allocator: arena).cast<Char>();
+    final tokenPtr = hfToken == null
+        ? nullptr
+        : hfToken.toNativeUtf8(allocator: arena).cast<Char>();
+    final cachePtr = cacheDirectory == null
+        ? nullptr
+        : cacheDirectory.toNativeUtf8(allocator: arena).cast<Char>();
+    final subPtr = subfolder == null
+        ? nullptr
+        : subfolder.toNativeUtf8(allocator: arena).cast<Char>();
+    final normInt = normalize == null ? -1 : (normalize ? 1 : 0);
+    final outError = arena<Pointer<Char>>();
 
-      final res = _bindings.init_embedder_advanced(
-        pathPtr.cast<Char>(),
-        tokenPtr.cast<Char>(),
-        cachePtr.cast<Char>(),
+    _check(
+      native.init_embedder_advanced(
+        pathPtr,
+        tokenPtr,
+        cachePtr,
         normInt,
-        subPtr.cast<Char>(),
-      );
+        subPtr,
+        outError,
+      ),
+      outError,
+    );
+  });
 
-      if (res != 0) {
-        throw Model2VecException.fromCode(res, 'Initialization failed');
-      }
-
-      _cachedDimension = null;
-    });
-  }
-
-  /// Initializes a model using raw bytes from memory.
+  /// Loads a model from raw bytes in memory.
   ///
-  /// Requires the content of the three main configuration files:
   /// - [tokenizerBytes]: Content of `tokenizer.json`.
   /// - [modelBytes]: Content of `model.safetensors`.
   /// - [configBytes]: Content of `config.json`.
-  void initEmbedderFromBytes({
+  static void loadModelFromBytes({
     required Uint8List tokenizerBytes,
     required Uint8List modelBytes,
     required Uint8List configBytes,
-  }) {
-    using((arena) {
-      final tPtr = arena<Uint8>(tokenizerBytes.length);
-      final mPtr = arena<Uint8>(modelBytes.length);
-      final cPtr = arena<Uint8>(configBytes.length);
+  }) => using((arena) {
+    final tPtr = arena<Uint8>(tokenizerBytes.length);
+    final mPtr = arena<Uint8>(modelBytes.length);
+    final cPtr = arena<Uint8>(configBytes.length);
 
-      tPtr.asTypedList(tokenizerBytes.length).setAll(0, tokenizerBytes);
-      mPtr.asTypedList(modelBytes.length).setAll(0, modelBytes);
-      cPtr.asTypedList(configBytes.length).setAll(0, configBytes);
+    tPtr.asTypedList(tokenizerBytes.length).setAll(0, tokenizerBytes);
+    mPtr.asTypedList(modelBytes.length).setAll(0, modelBytes);
+    cPtr.asTypedList(configBytes.length).setAll(0, configBytes);
 
-      final res = _bindings.init_embedder_from_bytes(
+    final outError = arena<Pointer<Char>>();
+    _check(
+      native.init_embedder_from_bytes(
         tPtr.cast<UnsignedChar>(),
         tokenizerBytes.length,
         mPtr.cast<UnsignedChar>(),
         modelBytes.length,
         cPtr.cast<UnsignedChar>(),
         configBytes.length,
-      );
+        outError,
+      ),
+      outError,
+    );
+  });
 
-      if (res != 0) {
-        throw Model2VecException.fromCode(
-          res,
-          'Initialization from bytes failed',
-        );
-      }
+  /// Loads a model asynchronously on a background isolate.
+  ///
+  /// Prefer this over [loadModel] when the model may be downloaded from
+  /// Hugging Face for the first time (tens to hundreds of MB): the synchronous
+  /// [loadModel] blocks the calling isolate for the entire download, which
+  /// freezes a Flutter UI. The native model is a single process-global, so once
+  /// the background isolate has loaded it the model is visible to every isolate
+  /// — including the one that awaited this call.
+  static Future<void> loadModelAsync(String modelPath) =>
+      Isolate.run(() => loadModel(modelPath));
 
-      _cachedDimension = null;
-    });
+  /// Advanced counterpart to [loadModelAsync].
+  ///
+  /// Takes the same options as [loadModelAdvanced] and loads them on a
+  /// background isolate; see [loadModelAsync] for why loading off-thread
+  /// matters and why the loaded model is visible on every isolate.
+  static Future<void> loadModelAdvancedAsync({
+    required String modelPath,
+    String? hfToken,
+    String? cacheDirectory,
+    bool? normalize,
+    String? subfolder,
+  }) => Isolate.run(
+    () => loadModelAdvanced(
+      modelPath: modelPath,
+      hfToken: hfToken,
+      cacheDirectory: cacheDirectory,
+      normalize: normalize,
+      subfolder: subfolder,
+    ),
+  );
+
+  /// Loads a model on a background isolate, reporting progress as a stream of
+  /// [LoadProgress] snapshots.
+  ///
+  /// Like [loadModelAdvancedAsync] the load runs off-thread so the calling
+  /// isolate stays responsive; this method additionally polls the native load
+  /// state and yields a snapshot roughly every [pollInterval]. The stream's
+  /// final event is always [LoadPhase.done]; if the load fails the stream emits
+  /// that error instead. Options mirror [loadModelAdvanced].
+  ///
+  /// Meaningful byte progress only appears while downloading the weights on a
+  /// first (uncached) load — an already-cached model or a local path moves
+  /// straight to [LoadPhase.done] with no byte counts.
+  ///
+  /// Only one load may run at a time (the native model is a single process
+  /// global); do not start another load, or switch/unload the model, while this
+  /// stream is active.
+  ///
+  /// Cancelling the stream (e.g. `break`ing out of `await for`, or
+  /// `subscription.cancel()`) stops progress events but does **not** cancel the
+  /// load: the background isolate keeps downloading and will still swap in the
+  /// new process-global model when it finishes. There is no way to abort a load
+  /// in flight — only [unloadModel] afterwards.
+  static Stream<LoadProgress> loadModelWithProgress(
+    String modelPath, {
+    String? hfToken,
+    String? cacheDirectory,
+    bool? normalize,
+    String? subfolder,
+    Duration pollInterval = const Duration(milliseconds: 100),
+  }) async* {
+    // Arm progress on this isolate before the load starts, so a previous load's
+    // terminal state is never observed as this one's opening event.
+    native.reset_load_progress();
+
+    final load = loadModelAdvancedAsync(
+      modelPath: modelPath,
+      hfToken: hfToken,
+      cacheDirectory: cacheDirectory,
+      normalize: normalize,
+      subfolder: subfolder,
+    );
+
+    // Mirror completion into a flag and a void future the poll loop can race
+    // against. Errors are swallowed here (re-thrown via `await load` below), so
+    // this future never completes with an error.
+    var finished = false;
+    final done = load.then<void>(
+      (_) => finished = true,
+      onError: (_, _) => finished = true,
+    );
+
+    while (!finished) {
+      yield _readLoadProgress(terminal: false);
+      // Wake on whichever comes first: the next poll tick or load completion.
+      await Future.any<void>([Future<void>.delayed(pollInterval), done]);
+    }
+
+    // Surface a load failure to the stream consumer.
+    await load;
+
+    // Terminal event: the model is loaded and ready.
+    yield _readLoadProgress(terminal: true);
   }
 
-  /// Returns a list of officially recommended Potion models from Hugging Face.
-  List<Map<String, dynamic>> getRecommendedModels() => [
-    {
-      'id': 'minishlab/potion-base-2M',
-      'name': 'Potion Base 2M',
-      'lang': 'English',
-      'params': '1.8M',
-      'description': 'Smallest English model, very fast.',
-    },
-    {
-      'id': 'minishlab/potion-base-4M',
-      'name': 'Potion Base 4M',
-      'lang': 'English',
-      'params': '3.7M',
-      'description': 'Small and efficient English model.',
-    },
-    {
-      'id': 'minishlab/potion-base-8M',
-      'name': 'Potion Base 8M',
-      'lang': 'English',
-      'params': '7.5M',
-      'description': 'Balanced English model.',
-    },
-    {
-      'id': 'minishlab/potion-base-32M',
-      'name': 'Potion Base 32M',
-      'lang': 'English',
-      'params': '32.3M',
-      'description': 'Large and accurate English model.',
-    },
-    {
-      'id': 'minishlab/potion-retrieval-32M',
-      'name': 'Potion Retrieval 32M',
-      'lang': 'English',
-      'params': '32.3M',
-      'description': 'Optimized specifically for RAG and retrieval tasks.',
-    },
-    {
-      'id': 'minishlab/potion-code-16M',
-      'name': 'Potion Code 16M',
-      'lang': 'Code',
-      'params': '16M',
-      'description': 'Optimized for code retrieval and analysis.',
-    },
-    {
-      'id': 'minishlab/potion-multilingual-128M',
-      'name': 'Potion Multilingual 128M',
-      'lang': 'Multilingual (101)',
-      'params': '128M',
-      'description': 'Best for multi-language tasks.',
-    },
+  /// Reads a [LoadProgress] snapshot from native load state. While polling
+  /// ([terminal] false) a native `done` is clamped to [LoadPhase.parsing] so
+  /// the only [LoadPhase.done] a consumer observes is the terminal event
+  /// emitted once the load future has actually completed.
+  static LoadProgress _readLoadProgress({required bool terminal}) =>
+      using((arena) {
+        final outPhase = arena<Int>();
+        final outDownloaded = arena<Size>();
+        final outTotal = arena<Size>();
+        native.get_load_progress(outPhase, outDownloaded, outTotal);
+
+        var phase = _loadPhaseFromCode(outPhase.value);
+        if (!terminal && phase == LoadPhase.done) {
+          phase = LoadPhase.parsing;
+        }
+        return LoadProgress(
+          phase: phase,
+          bytesDownloaded: outDownloaded.value,
+          totalBytes: outTotal.value,
+        );
+      });
+
+  /// Maps a native load-phase code (see `native/model2vec.h`) to a [LoadPhase].
+  static LoadPhase _loadPhaseFromCode(int code) => switch (code) {
+    2 => LoadPhase.downloading,
+    3 => LoadPhase.parsing,
+    4 => LoadPhase.done,
+    _ => LoadPhase.resolving, // 0 idle, 1 resolving
+  };
+
+  /// Unloads the active model and frees its native memory.
+  ///
+  /// Safe to call when no model is loaded. After this, [isInitialized] is
+  /// `false` and the metadata getters throw until a model is re-initialized.
+  static void unloadModel() => using((arena) {
+    final outError = arena<Pointer<Char>>();
+    _check(native.free_embedder(outError), outError);
+  });
+
+  /// Officially recommended Potion models to start from.
+  ///
+  /// A curated, offline catalog — not fetched from Hugging Face (see
+  /// `docs/adr/0003`), since the editorial fields here cannot be fetched.
+  // ignore: omit_obvious_property_types  explicit type documents the public API
+  static const List<RecommendedModel> recommendedModels = [
+    RecommendedModel(
+      id: 'minishlab/potion-base-2M',
+      name: 'Potion Base 2M',
+      lang: 'English',
+      params: '1.8M',
+      description: 'Smallest English model, very fast.',
+    ),
+    RecommendedModel(
+      id: 'minishlab/potion-base-4M',
+      name: 'Potion Base 4M',
+      lang: 'English',
+      params: '3.7M',
+      description: 'Small and efficient English model.',
+    ),
+    RecommendedModel(
+      id: 'minishlab/potion-base-8M',
+      name: 'Potion Base 8M',
+      lang: 'English',
+      params: '7.5M',
+      description: 'Balanced English model.',
+    ),
+    RecommendedModel(
+      id: 'minishlab/potion-base-32M',
+      name: 'Potion Base 32M',
+      lang: 'English',
+      params: '32.3M',
+      description: 'Large and accurate English model.',
+    ),
+    RecommendedModel(
+      id: 'minishlab/potion-retrieval-32M',
+      name: 'Potion Retrieval 32M',
+      lang: 'English',
+      params: '32.3M',
+      description: 'Optimized specifically for RAG and retrieval tasks.',
+    ),
+    RecommendedModel(
+      id: 'minishlab/potion-code-16M',
+      name: 'Potion Code 16M',
+      lang: 'Code',
+      params: '16M',
+      description: 'Optimized for code retrieval and analysis.',
+    ),
+    RecommendedModel(
+      id: 'minishlab/potion-multilingual-128M',
+      name: 'Potion Multilingual 128M',
+      lang: 'Multilingual (101)',
+      params: '128M',
+      description: 'Best for multi-language tasks.',
+    ),
   ];
 
   /// Generates a dense vector embedding for the provided [text].
@@ -279,282 +366,175 @@ class Model2Vec {
   /// - [maxLength]: Maximum number of tokens to keep before truncating.
   ///
   /// Returns a [Float32List] representing the text embedding.
-  /// Throws a [Model2VecException] if generation fails or no model is
-  /// initialized.
-  Float32List generateEmbedding(String text, {int maxLength = 512}) {
-    final dim = embeddingDimension;
-    return using((arena) {
-      final textPtr = text.toNativeUtf8(allocator: arena).cast<Char>();
-      final outVector = arena<Float>(dim);
+  /// Throws a [Model2VecException] if generation fails or no model is loaded.
+  static Float32List generateEmbedding(String text, {int maxLength = 512}) =>
+      using((arena) {
+        final textPtr = text.toNativeUtf8(allocator: arena).cast<Char>();
+        final outData = arena<Pointer<Float>>();
+        final outDim = arena<Size>();
+        final outError = arena<Pointer<Char>>();
 
-      final res = _bindings.generate_embedding(
-        textPtr,
-        outVector,
-        maxLength,
-      );
+        _check(
+          native.generate_embedding(
+            textPtr,
+            maxLength,
+            outData,
+            outDim,
+            outError,
+          ),
+          outError,
+        );
 
-      if (res != 0) {
-        throw Model2VecException.fromCode(res, 'Embedding generation failed');
-      }
+        final dim = outDim.value;
+        final dataPtr = outData.value;
+        try {
+          return Float32List.fromList(dataPtr.asTypedList(dim));
+        } finally {
+          native.free_floats(dataPtr, dim);
+        }
+      });
 
-      return .fromList(outVector.asTypedList(dim));
-    });
-  }
+  /// How many texts the native layer processes per internal chunk. This is a
+  /// throughput detail with no bearing on the result, so it is not exposed on
+  /// [generateBatchEmbeddings].
+  static const _ffiBatchSize = 1024;
 
-  /// Generates embeddings for multiple [texts] in a highly optimized batch
-  /// call.
+  /// Generates embeddings for multiple [texts] in a single batch call.
   ///
   /// - [maxLength]: Maximum number of tokens to keep before truncating.
-  /// - [batchSize]: Size of the internal batches sent to the model for
-  /// inference.
   ///
-  /// Returns a list of [Float32List], one for each input text.
+  /// Returns a list of [Float32List], one per input text.
   /// Throws a [Model2VecException] if generation fails.
-  List<Float32List> generateBatchEmbeddings(
+  static List<Float32List> generateBatchEmbeddings(
     List<String> texts, {
     int maxLength = 512,
-    int batchSize = 1024,
   }) {
     if (texts.isEmpty) {
       return [];
     }
 
-    final dim = embeddingDimension;
-    final count = texts.length;
-
     return using((arena) {
-      final outVectors = arena<Float>(count * dim);
+      final count = texts.length;
       final textPointers = arena<Pointer<Char>>(count);
-
       for (var i = 0; i < count; i++) {
         textPointers[i] = texts[i].toNativeUtf8(allocator: arena).cast<Char>();
       }
 
-      final res = _bindings.generate_batch_embeddings_advanced(
-        textPointers,
-        count,
-        outVectors,
-        maxLength,
-        batchSize,
+      final outData = arena<Pointer<Float>>();
+      final outDim = arena<Size>();
+      final outCount = arena<Size>();
+      final outError = arena<Pointer<Char>>();
+
+      _check(
+        native.generate_batch_embeddings_advanced(
+          textPointers,
+          count,
+          maxLength,
+          _ffiBatchSize,
+          outData,
+          outDim,
+          outCount,
+          outError,
+        ),
+        outError,
       );
 
-      if (res != 0) {
-        throw Model2VecException.fromCode(
-          res,
-          'Batch embedding generation failed',
-        );
+      final dim = outDim.value;
+      final resultCount = outCount.value;
+      final dataPtr = outData.value;
+      try {
+        final flatData = dataPtr.asTypedList(resultCount * dim);
+        final results = <Float32List>[];
+        for (var i = 0; i < resultCount; i++) {
+          final start = i * dim;
+          // sublist already copies out of native memory into a Dart-owned
+          // Float32List, so it stays valid after free_floats below.
+          results.add(flatData.sublist(start, start + dim));
+        }
+        return results;
+      } finally {
+        native.free_floats(dataPtr, resultCount * dim);
       }
-
-      final results = <Float32List>[];
-      final flatData = outVectors.asTypedList(count * dim);
-      for (var i = 0; i < count; i++) {
-        final start = i * dim;
-        results.add(.fromList(flatData.sublist(start, start + dim)));
-      }
-
-      return results;
     });
   }
 
   /// Generates an embedding vector asynchronously in a background Isolate.
-  Future<Float32List> generateEmbeddingAsync(
+  static Future<Float32List> generateEmbeddingAsync(
     String text, {
     int maxLength = 512,
   }) => Isolate.run(
-    () => Model2Vec.instance.generateEmbedding(
-      text,
-      maxLength: maxLength,
-    ),
+    () => Model2Vec.generateEmbedding(text, maxLength: maxLength),
   );
 
   /// Generates batch embeddings asynchronously in a background Isolate.
-  Future<List<Float32List>> generateBatchEmbeddingsAsync(
+  static Future<List<Float32List>> generateBatchEmbeddingsAsync(
     List<String> texts, {
     int maxLength = 512,
-    int batchSize = 1024,
   }) => Isolate.run(
-    () => Model2Vec.instance.generateBatchEmbeddings(
-      texts,
-      maxLength: maxLength,
-      batchSize: batchSize,
-    ),
+    () => Model2Vec.generateBatchEmbeddings(texts, maxLength: maxLength),
   );
 
   /// Consumes a stream of [texts] and yields a stream of embeddings.
   ///
   /// The stream is buffered into batches of [batchSize] to maximize throughput.
   ///
-  /// By default, [useIsolate] is `true`, which runs the heavy FFI computations
+  /// By default, [useIsolate] is `true`, which runs the heavy FFI computation
   /// in a single background worker isolate, preventing the main thread from
-  /// stuttering. This is ideal for Flutter applications or processing millions
-  /// of rows.
-  ///
-  /// **Performance Warning for CLI / Server:**
-  /// If you are writing a pure Dart CLI or server application where blocking
-  /// the main thread is acceptable (or if you already manage your own isolate
-  /// pool),  setting `useIsolate: false` will eliminate Inter-Process
-  /// Communication (IPC) overhead, avoiding unnecessary serialization of
-  /// strings and Float32Lists between isolates, making generation up to 2x
-  /// faster for small batches.
-  Stream<Float32List> generateEmbeddingStream(
+  /// stuttering. Set `useIsolate: false` in a pure CLI/server context where
+  /// blocking the main thread is acceptable, to avoid isolate IPC overhead.
+  static Stream<Float32List> generateEmbeddingStream(
     Stream<String> texts, {
     int batchSize = 1024,
     int maxLength = 512,
     bool useIsolate = true,
   }) async* {
+    final batches = batched(texts, batchSize);
+
     if (!useIsolate) {
-      var buffer = <String>[];
-      Stream<Float32List> flushBuffer(List<String> batch) async* {
-        final results = generateBatchEmbeddings(
-          batch,
-          maxLength: maxLength,
-          batchSize: batch.length,
-        );
-
-        for (final res in results) {
-          yield res;
+      await for (final batch in batches) {
+        final results = generateBatchEmbeddings(batch, maxLength: maxLength);
+        for (final result in results) {
+          yield result;
         }
       }
-
-      await for (final text in texts) {
-        buffer.add(text);
-
-        if (buffer.length >= batchSize) {
-          final currentBatch = buffer;
-          buffer = <String>[];
-          yield* flushBuffer(currentBatch);
-        }
-      }
-
-      if (buffer.isNotEmpty) {
-        yield* flushBuffer(buffer);
-      }
-
       return;
     }
 
-    final mainReceivePort = ReceivePort();
-    Isolate? isolate;
-    SendPort? workerSendPort;
-    StreamSubscription<dynamic>? sub;
-
+    EmbeddingWorker? worker;
     try {
-      isolate = await .spawn(_streamWorker, mainReceivePort.sendPort);
-      var pendingRequest = Completer<dynamic>();
-
-      sub = mainReceivePort.listen((message) {
-        pendingRequest.complete(message);
-      });
-
-      final firstMessage = await pendingRequest.future;
-      if (firstMessage is SendPort) {
-        workerSendPort = firstMessage;
-      } else {
-        throw StateError('Worker isolate failed to initialize');
-      }
-
-      var buffer = <String>[];
-
-      Stream<Float32List> flushBuffer(List<String> batch) async* {
-        pendingRequest = Completer<dynamic>();
-        workerSendPort!.send((
-          batch: batch,
-          maxLength: maxLength,
-        ));
-
-        final message = await pendingRequest.future;
-        if (message is List<Float32List>) {
-          for (final res in message) {
-            yield res;
-          }
-        } else if (message is String && message.startsWith('ERROR:')) {
-          throw Model2VecException(message);
-        } else {
-          throw StateError('Unexpected response from worker isolate: $message');
+      worker = await EmbeddingWorker.start();
+      await for (final batch in batches) {
+        final results = await worker.embedBatch(batch, maxLength: maxLength);
+        for (final result in results) {
+          yield result;
         }
-      }
-
-      await for (final text in texts) {
-        buffer.add(text);
-
-        if (buffer.length >= batchSize) {
-          final currentBatch = buffer;
-          buffer = <String>[];
-          yield* flushBuffer(currentBatch);
-        }
-      }
-
-      if (buffer.isNotEmpty) {
-        yield* flushBuffer(buffer);
       }
     } finally {
-      if (workerSendPort != null) {
-        workerSendPort.send('close');
-      }
-
-      isolate?.kill();
-      await sub?.cancel();
-      mainReceivePort.close();
+      await worker?.close();
     }
   }
 
-  static void _streamWorker(SendPort mainSendPort) {
-    final workerReceivePort = ReceivePort();
-    mainSendPort.send(workerReceivePort.sendPort);
-
-    workerReceivePort.listen((message) {
-      if (message == 'close') {
-        workerReceivePort.close();
-        return;
-      }
-
-      try {
-        final data = message as ({List<String> batch, int maxLength});
-
-        final results = Model2Vec.instance.generateBatchEmbeddings(
-          data.batch,
-          maxLength: data.maxLength,
-          batchSize: data.batch.length,
-        );
-        mainSendPort.send(results);
-      } on Object catch (e) {
-        mainSendPort.send('ERROR: $e');
-      }
-    });
+  /// Throws a typed [Model2VecException] when [code] is a native failure
+  /// (non-zero), reading and freeing the message written to [outError].
+  static void _check(int code, Pointer<Pointer<Char>> outError) {
+    if (code != 0) {
+      throw _nativeException(code, outError.value);
+    }
   }
 
-  static String _resolveLibPath() {
-    final libName = Platform.isLinux
-        ? 'libm2v_ffi.so'
-        : Platform.isMacOS
-        ? 'libm2v_ffi.dylib'
-        : 'm2v_ffi.dll';
-
-    final path = Directory.current.path;
-
-    final searchPaths = [
-      p.join(path, libName),
-      p.join(path, 'lib', libName),
-      p.join(path, '.dart_tool', 'lib', libName),
-      p.join(path, 'packages', 'model2vec', '.dart_tool', 'lib', libName),
-      p.join(path, 'native', 'target', 'release', libName),
-      p.join(
-        path,
-        'packages',
-        'model2vec',
-        'native',
-        'target',
-        'release',
-        libName,
-      ),
-    ];
-
-    for (final path in searchPaths) {
-      if (File(path).existsSync()) {
-        return path;
-      }
+  /// Reads the native error message at [errPtr] (freeing it) and builds a
+  /// typed [Model2VecException] for the given native [code].
+  static Model2VecException _nativeException(int code, Pointer<Char> errPtr) {
+    if (errPtr == nullptr) {
+      return Model2VecException.fromNative(code, 'native error (code $code)');
     }
-
-    return libName;
+    try {
+      return Model2VecException.fromNative(
+        code,
+        errPtr.cast<Utf8>().toDartString(),
+      );
+    } finally {
+      native.free_string(errPtr);
+    }
   }
 }

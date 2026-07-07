@@ -17,7 +17,7 @@ void main(List<String> args) async {
     const buildMode = 'release';
     final targetTriple = _mapToTriple(codeConfig);
 
-    final linkMode = codeConfig.linkModePreference == LinkModePreference.static
+    final linkMode = codeConfig.linkModePreference == .static
         ? StaticLinking()
         : DynamicLoadingBundled();
 
@@ -86,7 +86,7 @@ void main(List<String> args) async {
         package: input.packageName,
         name: 'model2vec.so',
         linkMode: linkMode,
-        file: Uri.file(binaryPath),
+        file: .file(binaryPath),
       ),
     );
 
@@ -97,10 +97,10 @@ void main(List<String> args) async {
       output.dependencies.addAll(deps);
     } else {
       // Fallback if .d file is missing
-      output.dependencies.add(Uri.directory(nativeDir));
+      output.dependencies.add(.directory(nativeDir));
     }
     // Always track the manifest
-    output.dependencies.add(Uri.file(manifestPath));
+    output.dependencies.add(.file(manifestPath));
   });
 }
 
@@ -108,15 +108,15 @@ bool _isHost(CodeConfig codeConfig) {
   final os = codeConfig.targetOS;
   final arch = codeConfig.targetArchitecture;
 
-  if (Platform.isLinux && os == OS.linux && arch == Architecture.x64) {
+  if (Platform.isLinux && os == .linux && arch == .x64) {
     return true;
   }
 
-  if (Platform.isMacOS && os == OS.macOS) {
-    return arch == Architecture.arm64 || arch == Architecture.x64;
+  if (Platform.isMacOS && os == .macOS) {
+    return arch == .arm64 || arch == .x64;
   }
 
-  if (Platform.isWindows && os == OS.windows && arch == Architecture.x64) {
+  if (Platform.isWindows && os == .windows && arch == .x64) {
     return true;
   }
 
@@ -128,30 +128,30 @@ String _mapToTriple(CodeConfig codeConfig) {
   final arch = codeConfig.targetArchitecture;
 
   return switch ((os, arch)) {
-    (OS.linux, Architecture.x64) => 'x86_64-unknown-linux-gnu',
-    (OS.linux, Architecture.arm64) => 'aarch64-unknown-linux-gnu',
-    (OS.macOS, Architecture.x64) => 'x86_64-apple-darwin',
-    (OS.macOS, Architecture.arm64) => 'aarch64-apple-darwin',
-    (OS.windows, Architecture.x64) => 'x86_64-pc-windows-msvc',
-    (OS.windows, Architecture.arm64) => 'aarch64-pc-windows-msvc',
-    (OS.android, Architecture.arm64) => 'aarch64-linux-android',
-    (OS.android, Architecture.arm) => 'armv7-linux-androideabi',
-    (OS.android, Architecture.x64) => 'x86_64-linux-android',
-    (OS.iOS, Architecture.arm64) =>
-      codeConfig.iOS.targetSdk == IOSSdk.iPhoneSimulator
+    (.linux, .x64) => 'x86_64-unknown-linux-gnu',
+    (.linux, .arm64) => 'aarch64-unknown-linux-gnu',
+    (.macOS, .x64) => 'x86_64-apple-darwin',
+    (.macOS, .arm64) => 'aarch64-apple-darwin',
+    (.windows, .x64) => 'x86_64-pc-windows-msvc',
+    (.windows, .arm64) => 'aarch64-pc-windows-msvc',
+    (.android, .arm64) => 'aarch64-linux-android',
+    (.android, .arm) => 'armv7-linux-androideabi',
+    (.android, .x64) => 'x86_64-linux-android',
+    (.iOS, .arm64) =>
+      codeConfig.iOS.targetSdk == .iPhoneSimulator
           ? 'aarch64-apple-ios-sim'
           : 'aarch64-apple-ios',
-    (OS.iOS, Architecture.x64) => 'x86_64-apple-ios',
+    (.iOS, .x64) => 'x86_64-apple-ios',
     _ => throw UnsupportedError('Unsupported target: $os $arch'),
   };
 }
 
 String _getLibraryFileName(OS os, String crateName) {
-  if (os == OS.windows) {
+  if (os == .windows) {
     return '$crateName.dll';
   }
 
-  if (os == OS.macOS || os == OS.iOS) {
+  if (os == .macOS || os == .iOS) {
     return 'lib$crateName.dylib';
   }
 
@@ -187,7 +187,7 @@ Map<String, String> _getBuildEnvVars(CodeConfig codeConfig) {
   final env = <String, String>{};
   final targetOS = codeConfig.targetOS;
 
-  if (targetOS == OS.android) {
+  if (targetOS == .android) {
     final cCompiler = codeConfig.cCompiler;
     if (cCompiler != null) {
       final targetTriple = _mapToTriple(codeConfig);
@@ -259,7 +259,7 @@ Map<String, String> _getBuildEnvVars(CodeConfig codeConfig) {
     }
   }
 
-  if (targetOS == OS.iOS) {
+  if (targetOS == .iOS) {
     try {
       env['IPHONEOS_DEPLOYMENT_TARGET'] = codeConfig.iOS.targetVersion
           .toString();

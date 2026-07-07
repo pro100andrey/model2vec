@@ -1,236 +1,278 @@
 # model2vec
 
 [![pub package](https://img.shields.io/pub/v/model2vec.svg)](https://pub.dev/packages/model2vec)
+[![CI](https://github.com/pro100andrey/model2vec/actions/workflows/ci.yml/badge.svg)](https://github.com/pro100andrey/model2vec/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-**High-performance, local text embeddings for Dart and Flutter.** A Dart wrapper around [model2vec-rs](https://github.com/MinishLab/model2vec-rs) using Rust FFI and Native Assets. Model2Vec creates small, fast, and effective text embeddings by distilling knowledge from large language models into a simple vocabulary-based look-up table.
+**Fast, on-device text embeddings for Dart & Flutter.** A Dart implementation of
+[Model2Vec](https://github.com/MinishLab/model2vec) with a self-contained Rust
+core (FFI + Native Assets). It turns text into vectors with a static vocabulary
+lookup — not a transformer — so embeddings are generated in **microseconds**,
+with no server, no Python, and no network after the model is cached.
 
-## Table of Contents
+## Features
 
-- [model2vec](#model2vec)
-  - [Table of Contents](#table-of-contents)
-  - [Key Features](#key-features)
-  - [Recommended Models](#recommended-models)
-  - [Installation](#installation)
-  - [Quick Start](#quick-start)
-  - [Recipes \& Patterns](#recipes--patterns)
-    - [1. Advanced Batch Processing](#1-advanced-batch-processing)
-    - [2. Massive Data Streaming](#2-massive-data-streaming)
-    - [3. Asynchronous Isolate Execution](#3-asynchronous-isolate-execution)
-    - [4. Vector Math \& Quantization](#4-vector-math--quantization)
-  - [API Reference](#api-reference)
-    - [Core Methods (`Model2Vec` class)](#core-methods-model2vec-class)
-    - [Math Utilities (`Model2VecUtils` class)](#math-utilities-model2vecutils-class)
-  - [Performance](#performance)
-  - [Development \& Contributing](#development--contributing)
-  - [License](#license)
-
-## Key Features
-
-- **Extreme Performance:** Built on top of a highly optimized Rust engine. Up to **~1.7x faster** than the official Python implementation, generating embeddings in microseconds.
-- **Compact & Quantized:** Models are typically 25MB - 100MB. Perfect for edge computing.
-- **Massive Streaming:** Built-in `generateEmbeddingStream` for processing millions of rows without blocking the Event Loop or overflowing RAM.
-- **Hugging Face Integration:** Automatically downloads and caches models directly from the Hugging Face Hub.
-- **Zero-Stutter Async:** Transparently runs heavy tokenization and math in background Dart Isolates using `Async` methods.
-- **Vector Utilities:** Ships with high-performance mathematical tools (`cosineSimilarity`, `quantizeToInt8`, `similaritySearch`, etc.).
-
-## Recommended Models
-
-Model2Vec provides a variety of pre-trained models optimized for different use cases. These can be loaded directly via their Hugging Face model ID.
-
-| Model ID | Language | Distilled From | Params | Dimension | Size |
-| -------- | -------- | -------------- | ------ | --------- | ---- |
-| [`minishlab/potion-base-32M`](https://huggingface.co/minishlab/potion-base-32M) | English | bge-base-en-v1.5 | 32.3M | 512 | ~150MB |
-| [`minishlab/potion-multilingual-128M`](https://huggingface.co/minishlab/potion-multilingual-128M) | Multi | bge-m3 | 128M | 768 | ~500MB |
-| [`minishlab/potion-retrieval-32M`](https://huggingface.co/minishlab/potion-retrieval-32M) | English | bge-base-en-v1.5 | 32.3M | 512 | ~150MB |
-| [`minishlab/potion-code-16M`](https://huggingface.co/minishlab/potion-code-16M) | Code | CodeRankEmbed | 16M | 384 | ~80MB |
-| [`minishlab/potion-base-8M`](https://huggingface.co/minishlab/potion-base-8M) | English | bge-base-en-v1.5 | 7.5M | 256 | ~50MB |
-| [`minishlab/potion-base-4M`](https://huggingface.co/minishlab/potion-base-4M) | English | bge-base-en-v1.5 | 3.7M | 128 | ~30MB |
-| [`minishlab/potion-base-2M`](https://huggingface.co/minishlab/potion-base-2M) | English | bge-base-en-v1.5 | 1.8M | 64 | ~25MB |
+- **Fast & local** — embeddings in microseconds; fully offline once a model is cached.
+- **Hugging Face models** — load any Potion model by id (auto-download + cache), a local directory, or raw bytes.
+- **Scales** — batch embedding (Rust SIMD), background isolates, a streaming API for millions of rows, and a worker pool across CPU cores.
+- **Built-in retrieval** — an on-device `EmbeddingIndex` (cosine search, int8 quantization, disk persistence) plus vector math (cosine, MMR, pooling, quantization).
+- **Native Assets** — the Rust library builds automatically on `pub get`; nothing to link, bundle, or ship.
 
 ## Installation
-
-Add `model2vec` to your `pubspec.yaml`:
-
-```yaml
-dependencies:
-  model2vec: any
-```
-
-Or add it using the command line:
 
 ```bash
 dart pub add model2vec
 ```
 
-*Requires **Dart SDK**: 3.10.0+ and **Rust toolchain**: 1.86.0+ (to build the native library via Native Assets).*
+Requirements:
 
-## Quick Start
+- **Dart SDK** 3.10+.
+- **Rust toolchain** ([rustup](https://rustup.rs)). The native library is compiled
+  automatically via Native Assets; the exact version is pinned in
+  [`native/rust-toolchain.toml`](native/rust-toolchain.toml) and installed for you.
+
+## Quick start
 
 ```dart
 import 'package:model2vec/model2vec.dart';
 
 void main() {
-  final m2v = Model2Vec.instance;
-  
-  // Initialize with a model from Hugging Face
-  m2v.initEmbedder('minishlab/potion-base-2M');
-  
-  // Generate an embedding
-  final embedding = m2v.generateEmbedding('Dart FFI is blazingly fast 🚀');
-  
-  print('Vector dimension: ${m2v.embeddingDimension}');
-  print('Vocabulary size: ${m2v.vocabularySize}');
+  // One active model per process; the native library loads automatically.
+  Model2Vec.loadModel('minishlab/potion-base-2M'); // downloads on first run
+
+  final a = Model2Vec.generateEmbedding('I love programming in Dart');
+  final b = Model2Vec.generateEmbedding('Dart is a great language');
+
+  print(Model2VecUtils.cosineSimilarity(a, b)); // ~0.8 — semantically close
 }
 ```
 
-## Recipes & Patterns
+> In a Flutter app, use `loadModelAsync` instead so the first download never
+> blocks the UI (see [Loading off the main thread](#loading-off-the-main-thread)).
 
-### 1. Advanced Batch Processing
+**Migrating from 1.x?** The instance API is gone: replace
+`Model2Vec.instance.foo(...)` with `Model2Vec.foo(...)`, drop `Model2Vec.boot(...)`
+/ `Model2Vec(lib)` (resolution is automatic), and read
+`Model2Vec.recommendedModels` instead of `getRecommendedModels()`. Full list in the
+[CHANGELOG](CHANGELOG.md).
 
-Process multiple strings at once for maximum hardware utilization. You can control sequence truncation and batch sizes.
+## Models
+
+Load any of these by id, or browse the typed catalog at `Model2Vec.recommendedModels`.
+
+| Model | Params | Dim | Language | Best for |
+| ----- | ------ | --- | -------- | -------- |
+| [`potion-base-2M`](https://huggingface.co/minishlab/potion-base-2M) | 1.8M | 64 | English | Smallest, very fast |
+| [`potion-base-4M`](https://huggingface.co/minishlab/potion-base-4M) | 3.7M | 128 | English | Small and efficient |
+| [`potion-base-8M`](https://huggingface.co/minishlab/potion-base-8M) | 7.5M | 256 | English | Balanced default |
+| [`potion-base-32M`](https://huggingface.co/minishlab/potion-base-32M) | 32.3M | 512 | English | Large and accurate |
+| [`potion-retrieval-32M`](https://huggingface.co/minishlab/potion-retrieval-32M) | 32.3M | 512 | English | RAG / retrieval |
+| [`potion-code-16M`](https://huggingface.co/minishlab/potion-code-16M) | 16M | 384 | Code | Code search |
+| [`potion-multilingual-128M`](https://huggingface.co/minishlab/potion-multilingual-128M) | 128M | 768 | 101 languages | Multilingual tasks |
+
+## Guide
+
+Runnable versions of everything below live in [`example/`](example/).
+
+### Generating embeddings
 
 ```dart
-final texts = ['Dart', 'Rust', 'Flutter'];
+// Single vector
+final v = Model2Vec.generateEmbedding('Hello world');
 
-final embeddings = m2v.generateBatchEmbeddings(
-  texts,
-  maxLength: 256,   // Truncate strings longer than 256 tokens
-  batchSize: 1024,  // Internal chunks sent to the FFI layer
+// Batch — one native call, SIMD across the batch. maxLength truncates long input.
+final batch = Model2Vec.generateBatchEmbeddings(
+  ['Dart', 'Rust', 'Flutter'],
+  maxLength: 256,
 );
 ```
 
-### 2. Massive Data Streaming
-
-When reading gigabytes of text from files or databases, loading everything into memory will crash the app. Use the **Streaming API** to handle data in chunks automatically.
+For datasets too large to hold in memory, stream them — the input is processed in
+batches and the output is a `Stream<Float32List>`:
 
 ```dart
-import 'dart:convert';
-import 'dart:io';
+final vectors = Model2Vec.generateEmbeddingStream(
+  lines,               // a Stream<String> from a file, DB, socket…
+  batchSize: 500,
+  useIsolate: true,    // run the work off the main isolate
+);
 
-Future<void> processHugeFile() async {
-  final fileStream = File('massive_dataset.txt')
-      .openRead()
-      .transform(utf8.decoder)
-      .transform(const LineSplitter());
+await for (final v in vectors) {
+  save(v);             // bounded memory, whatever the input size
+}
+```
 
-  // Converts a Stream<String> into a Stream<Float32List>
-  final embeddingStream = m2v.generateEmbeddingStream(
-    fileStream,
-    batchSize: 500, // Process 500 strings at a time
-    useIsolate: true, // Run math in background threads
-  );
+### Loading off the main thread
 
-  await for (final embedding in embeddingStream) {
-    saveToDb(embedding); // Memory safe!
+The first load of a model downloads tens to hundreds of MB. `loadModelAsync` runs
+it on a background isolate; because the native model is a single process-global, it
+becomes visible to every isolate once loaded.
+
+```dart
+await Model2Vec.loadModelAsync('minishlab/potion-base-2M');
+```
+
+To show a progress bar for that download, use `loadModelWithProgress` — it streams
+`LoadProgress` snapshots and always ends on `LoadPhase.done` (a cached model or
+local path jumps straight there; a failed load surfaces as a stream error):
+
+```dart
+await for (final p in Model2Vec.loadModelWithProgress('minishlab/potion-base-8M')) {
+  switch (p.phase) {
+    case LoadPhase.downloading:
+      print('${((p.fraction ?? 0) * 100).round()}%'); // fraction is null until size is known
+    case LoadPhase.resolving || LoadPhase.parsing:
+      print('Preparing…');
+    case LoadPhase.done:
+      print('Ready');
   }
 }
 ```
 
-### 3. Asynchronous Isolate Execution
+### Similarity & vector math
 
-Never block the main thread. If you are building a Flutter app, always use the `Async` variants to perform generation in a background `Isolate`.
-
-```dart
-final embedding = await m2v.generateEmbeddingAsync('A very long text...');
-final batch = await m2v.generateBatchEmbeddingsAsync(['A', 'B', 'C']);
-```
-
-### 4. Vector Math & Quantization
-
-The library ships with `Model2VecUtils` — a powerful suite of math operations tuned for embeddings.
+`Model2VecUtils` is a set of static helpers tuned for embeddings.
 
 ```dart
-final query = m2v.generateEmbedding('cat');
-final candidates = [
-  m2v.generateEmbedding('dog'),
-  m2v.generateEmbedding('space'),
+final query = Model2Vec.generateEmbedding('cat');
+final docs = [
+  Model2Vec.generateEmbedding('kitten'),
+  Model2Vec.generateEmbedding('rocket'),
 ];
 
-// 1. Semantic Similarity (Cosine)
-final sim = Model2VecUtils.cosineSimilarity(query, candidates[0]);
+// Cosine similarity of two vectors (-1.0 … 1.0)
+Model2VecUtils.cosineSimilarity(query, docs[0]);
 
-// 2. Threshold Searching (Find all matches > 80%)
-final matches = Model2VecUtils.similaritySearchWithThreshold(
-  query, candidates, threshold: 0.8,
-);
+// Rank an in-memory list: (index, score) pairs, top-K with an optional threshold
+Model2VecUtils.similaritySearchWithScores(query, docs, topK: 5, threshold: 0.5);
 
-// 3. Scalar Quantization (Compress Float32 to Int8 to save 4x RAM)
-final compressed = Model2VecUtils.quantizeToInt8(query);
-
-// 4. Mean Pooling (Average multiple vectors into one)
-final sentenceVector = Model2VecUtils.meanPooling(candidates);
-
-// 5. DB Serialization
-final base64String = Model2VecUtils.toBase64(query);
+// Compress Float32 → Int8 (¼ the memory) and serialize for storage
+final int8 = Model2VecUtils.quantizeToInt8(query);
+final str = Model2VecUtils.toBase64(query);
 ```
 
-## API Reference
+### Local retrieval (RAG)
 
-### Core Methods (`Model2Vec` class)
+Build a searchable, persistable index entirely on-device — chunk, embed, store,
+query. No server.
 
-| Method / Property | Description |
-| ----------------- | ----------- |
-| `initEmbedder(path)` | Initializes the model from a Hugging Face repo ID or local path. |
-| `initEmbedderAdvanced(...)` | Advanced initialization with custom `cacheDirectory`, `hfToken`, or `normalize` overrides. |
-| `initEmbedderFromBytes(...)` | Initializes the model directly from raw `Uint8List` bytes (`model.safetensors`, `tokenizer.json`, etc). |
-| `getRecommendedModels()` | Returns a list of officially supported models. |
-| `tokenize(text)` | Runs the internal BPE tokenizer and returns a `List<String>`. |
-| `generateEmbedding(text)` | Synchronously generates a `Float32List` embedding vector. |
-| `generateBatchEmbeddings(texts)` | Synchronously generates embeddings for a `List<String>` using Rust SIMD. |
-| `generateEmbeddingAsync(text)` | Asynchronously generates an embedding in a background `Isolate`. |
-| `generateEmbeddingStream(stream)` | Processes a huge `Stream<String>` into a `Stream<Float32List>` in batches. |
-| `embeddingDimension` | Property returning the vector size (e.g., 256, 384, 512). |
-| `vocabularySize` | Property returning the number of tokens in the model's vocabulary. |
+```dart
+// Split documents into overlapping passages, then embed and index them. Storing
+// each passage as the entry's payload means a hit carries its text directly.
+final index = EmbeddingIndex(quantized: true); // int8 storage, ~¼ the memory
+for (final passage in chunkText(document, maxChars: 800, overlap: 100)) {
+  index.add(passage, Model2Vec.generateEmbedding(passage), payload: passage);
+}
 
-### Math Utilities (`Model2VecUtils` class)
+// Query — SearchResult(id, score, payload), most similar first.
+final query = Model2Vec.generateEmbedding('How do I reset my password?');
+for (final hit in index.search(query, topK: 5)) {
+  print('${hit.score.toStringAsFixed(3)}  ${hit.payload}');
+}
 
-| Method | Description |
-| ------ | ----------- |
-| `cosineSimilarity(a, b)` | Calculates cosine similarity (-1.0 to 1.0) between two vectors. |
-| `cosineDistance(a, b)` | Calculates cosine distance (0.0 to 2.0). |
-| `euclideanDistance(a, b)` | Calculates Euclidean (L2) distance. |
-| `similaritySearch(query, docs)` | Returns the indices of the Top-K most similar vectors in a database. |
-| `similaritySearchWithThreshold` | Returns all indices with similarity above a given threshold. |
-| `quantizeToInt8(vector)` | Compresses a `Float32List` into an `Int8List` (4x memory savings). |
-| `normalize(vector)` | Applies L2 normalization to a vector. |
-| `meanPooling(vectors)` | Averages multiple vectors into a single vector. |
-| `toBase64` / `fromBase64` | Serializes/Deserializes a vector to/from a Base64 string for DB storage. |
+// Persist and reload — no model needed to load, only to embed new queries.
+final reloaded = EmbeddingIndex.fromBytes(index.toBytes());
+```
+
+Use `Model2VecUtils.maximalMarginalRelevance` to rerank for diverse results.
+
+### Parallel embedding & lifecycle
+
+```dart
+// Fan batches across CPU cores with a pool of worker isolates.
+final pool = await EmbeddingPool.start(); // defaults to the core count
+final results = await pool.embedBatches(listOfBatches);
+await pool.close();
+
+// State & teardown.
+if (Model2Vec.isInitialized) {
+  final info = Model2Vec.modelInfo; // dimension, vocabulary, normalized, median
+  print('dimension ${info.dimension}');
+}
+Model2Vec.unloadModel(); // frees the native model
+```
+
+## API reference
+
+Full docs are generated on [pub.dev](https://pub.dev/documentation/model2vec/latest/).
+The essentials:
+
+**`Model2Vec`** — `loadModel` · `loadModelAdvanced` · `loadModelFromBytes` ·
+`loadModelAsync` · `loadModelAdvancedAsync` · `loadModelWithProgress` ·
+`generateEmbedding` · `generateBatchEmbeddings` · `generateEmbeddingAsync` ·
+`generateBatchEmbeddingsAsync` · `generateEmbeddingStream` · `tokenize` ·
+`isInitialized` · `modelInfo` · `unloadModel` · `recommendedModels` ·
+`embeddingDimension` · `vocabularySize` · `isNormalized` · `medianTokenLength`.
+
+**`Model2VecUtils`** — `cosineSimilarity` · `cosineDistance` · `euclideanDistance` ·
+`dotProduct` · `similaritySearchWithScores` · `maximalMarginalRelevance` ·
+`normalize` · `meanPooling` · `quantizeToInt8` · `dequantizeInt8` ·
+`pairwiseSimilarity` · `toBase64` · `fromBase64`.
+
+**Types** — `EmbeddingIndex` (on-device vector store), `EmbeddingPool` (parallel
+embedding), `chunkText` (overlapping chunker), `ModelInfo`, `LoadProgress` /
+`LoadPhase`, `RecommendedModel`, `Model2VecException` / `Model2VecErrorKind`.
 
 ## Performance
 
-`model2vec` uses highly optimized FFI bindings. For mathematical operations on embeddings, Dart handles single-vector math natively with zero-overhead, while batch generation leverages Rust's SIMD (auto-vectorization) capabilities.
+Single-vector math runs natively in Dart with zero FFI overhead; batch generation
+uses the Rust engine's SIMD. Measured on an Apple Silicon laptop from an AOT
+`dart build` bundle, best of 3 runs (absolute numbers vary by machine):
 
-Here is a performance benchmark run on a typical machine (AOT compiled):
+| Model | Load (cached) | Single embedding | Batch of 32 |
+| ----- | ------------- | ---------------- | ----------- |
+| `potion-base-2M` | 21 ms | 240 μs | 3.8 ms |
+| `potion-base-4M` | 22 ms | 248 μs | 3.8 ms |
+| `potion-base-8M` | 24 ms | 251 μs | 4.0 ms |
+| `potion-base-32M` | 66 ms | 254 μs | 4.3 ms |
+| `potion-multilingual-128M` | 841 ms | 312 μs | 4.1 ms |
 
-| Model | Load Time (Cache) | Single Embedding | Batch (32) |
-| --- | --- | --- | --- |
-| `minishlab/potion-base-2M` | ~40 ms | 372.9 μs | 3.85 ms |
-| `minishlab/potion-base-4M` | ~40 ms | 363.7 μs | 4.19 ms |
-| `minishlab/potion-base-8M` | ~40 ms | 382.1 μs | 5.60 ms |
-| `minishlab/potion-base-32M` | ~120 ms | 452.6 μs | 6.79 ms |
-| `minishlab/potion-multilingual-128M` | ~1050 ms | 416.1 μs | 5.38 ms |
+A single embedding is a few hundred microseconds; `similaritySearchWithScores`
+over 100,000 vectors takes **< 100 ms** in pure Dart.
 
-> *Note: Initial load times may vary slightly based on the disk speed. Generating an embedding takes just **a few microseconds** per string.*
+## Deployment
 
-- `similaritySearch` over 100,000 vectors takes **<100ms** in pure Dart.
+The native library ships with your app automatically — nothing to link by hand:
 
-## Development & Contributing
+- **Flutter** (`flutter build …`) and **`dart run`** bundle and resolve it for you.
+- **Standalone CLI**: build with `dart build cli` (not `dart compile exe`, which
+  does not bundle native assets yet). The library is copied into `bundle/lib/`
+  next to the executable, so the bundle is self-contained.
 
-The library uses Dart Native Assets, meaning `cargo build` is invoked automatically when running Dart code.
+## Development
 
-To manually re-build bindings if you modify the Rust C-API (`native/src/lib.rs`):
+The Rust library builds automatically through Native Assets (`cargo build` runs when
+you run Dart code). Regenerate the FFI bindings after changing the C API in
+[`native/src/lib.rs`](native/src/lib.rs):
 
 ```bash
 dart run ffigen
 ```
 
-To run the test suite:
+Testing — model-dependent tests are tagged `integration` (they download a small
+model on first run and cache it):
 
 ```bash
+dart test                 # everything
+dart test -x integration  # fast lane: unit tests only, no model download
+dart test -t integration  # only the model-dependent tests
+```
+
+Before pushing, mirror the CI checks
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+
+```bash
+dart format .
+dart analyze --fatal-infos
 dart test
 ```
 
+## Credits
+
+Model2Vec and the Potion models are by [MinishLab](https://github.com/MinishLab).
+This package's Rust core draws on their
+[model2vec-rs](https://github.com/MinishLab/model2vec-rs).
+
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see [LICENSE](LICENSE).

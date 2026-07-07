@@ -29,3 +29,5 @@ doc/api/
 .flutter-plugins-dependencies
 
 native/target
+docs
+CONTEXT.md
