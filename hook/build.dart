@@ -6,6 +6,29 @@ import 'package:path/path.dart' as p;
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
+    // An invocation that did not ask for code assets carries no target OS and
+    // no architecture, so there is nothing here to build for — and reading
+    // `input.config.code` in that mode throws by contract: "HookConfig.code
+    // should only be accessed when building code assets."
+    //
+    // The cost of not asking is out of proportion to the mistake: the throw
+    // exits the hook with 255, and the runner then fails the package's whole
+    // Dart build, including the invocation that DID ask and did produce the
+    // library. `flutter run` reports "Building native assets failed" and never
+    // starts the app. Flutter reaches this branch on every run — it invokes
+    // hooks a second time to bundle assets (`FlutterHookRunnerNative.runHooks`
+    // passes `buildCodeAssets: null`), and with data assets behind a feature
+    // flag that is off on stable, that invocation asks for nothing at all.
+    // `dart build` never makes it, which is why the failure looks like a
+    // Flutter-only one.
+    //
+    // Returning here leaves an empty output, which is what the runner expects
+    // of an invocation that asked for nothing: `validateCodeAssetBuildOutput`
+    // short-circuits on the same flag.
+    if (!input.config.buildCodeAssets) {
+      return;
+    }
+
     final packageRoot = input.packageRoot.toFilePath();
     final nativeDir = p.join(packageRoot, 'native');
     final manifestPath = p.join(nativeDir, 'Cargo.toml');

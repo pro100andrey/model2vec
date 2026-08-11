@@ -1,4 +1,20 @@
 <!-- markdownlint-disable-file MD025 -->
+# 2.0.1
+
+Fixes a build hook that broke every Flutter app depending on this package.
+
+- **`flutter run` no longer fails with "Building native assets failed".** The
+  hook read `input.config.code` without first asking
+  `input.config.buildCodeAssets`. That is fine for `dart build`, which only ever
+  invokes hooks with code assets requested — but Flutter also runs them from its
+  asset-bundling pass (`buildCodeAssets: null`), and with data assets behind a
+  feature flag that pass arrives with `build_asset_types` **empty**. Reading
+  `.code` there throws `StateError`, the hook exits 255, and Flutter reports the
+  whole app's native-asset build as failed, including the pass that would have
+  built the library. The hook now returns early when no code assets are asked
+  for. `test/build_hook_test.dart` pins the empty case, which no local `dart`
+  command reaches on its own.
+
 # 2.0.0
 
 Major release reworking the FFI boundary and public surface for testability and
