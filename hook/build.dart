@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
@@ -114,13 +115,44 @@ void main(List<String> args) async {
     );
 
     // 5. Track dependencies precisely using .d file
-    final depFilePath = '$binaryPath.d';
+    //
+    // `setExtension`, not `'$binaryPath.d'`. Cargo writes ONE dep-info file per
+    // target, named after the target rather than after the artifact: a crate
+    // built as `["staticlib", "cdylib"]` produces `libm2v_ffi.a`,
+    // `libm2v_ffi.dylib` and a single `libm2v_ffi.d` beside them. Appending to
+    // the artifact path asked for `libm2v_ffi.dylib.d`, which cargo never
+    // writes on any platform — so the parse below returned nothing EVERY time
+    // and the fallback was not a fallback but the only path ever taken.
+    //
+    // That mattered far more than a missed optimisation. The fallback declared
+    // `native/` — and `native/` contains cargo's own `target/`. A hook whose
+    // declared input contains its own output invalidates itself: anything
+    // written into the build tree, such as a second consumer building the same
+    // crate, makes the runner report `File modified during build. Build must
+    // be rerun.` and invoke the hook again. Measured here, a file written into
+    // `target/` without touching `src/`: 1 re-run and 1.55 s before this fix,
+    // 0 and 0.85 s after. The re-run is cheap only while cargo has nothing to
+    // do — when it coincides with a real rebuild the cost is the rebuild, and
+    // in a dependent workspace that was 68 s against 3.5 s settled, with the
+    // spawning tests of a parallel `dart test` timing out. See
+    // dart-lang/native#1998 for the same shape reported against
+    // `native_toolchain_c`, and dart.dev/tools/hooks: dependencies are the
+    // inputs a hook READS, never the outputs it produces.
+    final depFilePath = p.setExtension(binaryPath, '.d');
     final deps = _parseDependencies(depFilePath);
     if (deps.isNotEmpty) {
       output.dependencies.addAll(deps);
     } else {
-      // Fallback if .d file is missing
-      output.dependencies.add(.directory(nativeDir));
+      // Fallback if the .d file is missing — the crate's real inputs, named one
+      // by one. Deliberately NOT `nativeDir`: that is the parent of `target/`,
+      // and declaring it is the self-invalidating loop described above.
+      output.dependencies.add(.directory(p.join(nativeDir, 'src')));
+      for (final name in const ['Cargo.lock', 'rust-toolchain.toml']) {
+        final file = File(p.join(nativeDir, name));
+        if (file.existsSync()) {
+          output.dependencies.add(.file(file.path));
+        }
+      }
     }
     // Always track the manifest
     output.dependencies.add(.file(manifestPath));
@@ -292,21 +324,57 @@ Map<String, String> _getBuildEnvVars(CodeConfig codeConfig) {
   return env;
 }
 
+/// The source files a cargo dep-info file lists, as absolute URIs.
 Iterable<Uri> _parseDependencies(String dependencyFilePath) {
-  if (!File(dependencyFilePath).existsSync()) {
-    return [];
+  final file = File(dependencyFilePath);
+  if (!file.existsSync()) {
+    return const [];
   }
 
-  final content = File(dependencyFilePath).readAsStringSync();
-  final parts = content.split(':');
-  if (parts.length < 2) {
-    return [];
+  return parseDependencyPaths(file.readAsStringSync()).map(Uri.file);
+}
+
+/// The dependency paths listed in the body of a cargo dep-info file.
+///
+/// Separated from the file reading so it can be tested against the platform it
+/// is NOT running on: the Windows case below cannot be produced by a cargo run
+/// on a Mac, and it is the one that fails silently.
+///
+/// The format is Makefile-like — one `target: dep dep dep` line per artifact —
+/// which decides all three things this has to get right.
+///
+/// **Split on the first `": "`, not on the first `':'`.** A Windows path opens
+/// with a drive letter, so `C:\out\m2v_ffi.dll: C:\src\lib.rs` cut at any colon
+/// yields `\out\m2v_ffi.dll` as a "dependency" — a path that does not exist,
+/// with the hook still reporting success. That bug was dormant while the caller
+/// asked for a filename cargo never writes: the reader above returned early on
+/// a missing file and never reached this parser at all. Fixing the caller is
+/// what would have exposed it, on Windows only, as a hook that rebuilds when it
+/// need not and skips rebuilds when it must not.
+///
+/// **Read every line.** A crate built as `["staticlib", "cdylib"]` gets a line
+/// per artifact; taking only the first drops the rest.
+///
+/// **Respect escaped spaces.** Cargo writes a space inside a path as `\ `, so
+/// splitting on bare whitespace tears `/Users/Jane Doe/src/lib.rs` in half.
+List<String> parseDependencyPaths(String content) {
+  final deps = <String>{};
+
+  for (final line in const LineSplitter().convert(content)) {
+    final separator = line.indexOf(': ');
+    if (separator == -1) {
+      continue;
+    }
+
+    final listed = line.substring(separator + 2).trim();
+    for (final entry in listed.split(RegExp(r'(?<!\\)\s+'))) {
+      // A lone `\` is a line continuation, not a path.
+      if (entry.isEmpty || entry == r'\') {
+        continue;
+      }
+      deps.add(entry.replaceAll(r'\ ', ' '));
+    }
   }
 
-  // The first part is the target file, second part are dependencies
-  return parts[1]
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((e) => e.isNotEmpty && e != r'\')
-      .map(Uri.file);
+  return deps.toList();
 }

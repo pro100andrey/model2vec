@@ -1,4 +1,49 @@
 <!-- markdownlint-disable-file MD025 -->
+# 2.0.2
+
+Fixes a build hook that could never be cached, so every build of a dependent
+package paid to rebuild this crate.
+
+- **The hook no longer declares its own build output as its input.** It looked
+  for cargo's dep-info beside the artifact as `'$binaryPath.d'` —
+  `libm2v_ffi.dylib.d`. Cargo writes one dep-info per *target*, named after the
+  target: a crate built as `["staticlib", "cdylib"]` produces `libm2v_ffi.a`,
+  `libm2v_ffi.dylib` and a single `libm2v_ffi.d`. The requested name is written
+  on no platform, so the parse returned nothing **every time** and the fallback
+  — `output.dependencies.add(.directory(nativeDir))` — was not a fallback but
+  the only path ever taken. `native/` contains cargo's own `target/`, so the
+  hook declared as its input a tree it rewrites on every run. Anything that
+  writes there — a second consumer building the same crate — marks the hook
+  dirty, and the runner reports `File modified during build. Build must be
+  rerun.` and invokes it again. Measured on this repository against
+  `hooks 2.1.0`, a file written into `target/` without touching `src/`:
+  **1 re-run and 1.55 s** before, **0 and 0.85 s** after. The re-run is cheap
+  only while cargo itself has
+  nothing to do; when the re-run coincides with a real rebuild the cost is the
+  rebuild, and in a dependent workspace that measured **68 s** against **3.5 s**
+  settled, with the spawning tests of a parallel `dart test` timing out. See
+  [dart-lang/native#1998](https://github.com/dart-lang/native/issues/1998) for
+  the same shape reported against `native_toolchain_c`, and
+  [dart.dev/tools/hooks](https://dart.dev/tools/hooks): dependencies are the
+  inputs a hook reads, never the outputs it produces.
+- **The dep-info parser no longer breaks on Windows paths.** It split the file
+  on the first `':'`, which on Windows is the drive letter — so
+  `C:\out\m2v_ffi.dll: C:\src\lib.rs` yielded `\out\m2v_ffi.dll` as a
+  "dependency": a path that exists nowhere, with the hook still reporting
+  success. That bug was dormant only because the filename above meant the
+  parser was never reached, so fixing the filename alone would have shipped it.
+  The separator is now the first `": "`. While there, the parser reads **every**
+  artifact line rather than only the first, and honours cargo's `\ ` escape so
+  a path containing a space stays one path.
+- **When the dep-info really is missing**, the fallback now names the crate's
+  actual inputs — `native/src/`, `Cargo.lock`, `rust-toolchain.toml` and the
+  manifest — instead of the directory that holds the build tree.
+
+`test/build_hook_test.dart` covers both: an integration test reads the
+dependencies the hook actually writes for the host, and unit tests pin the
+Windows, multi-line and escaped-space cases that a run on one platform cannot
+produce. No API change; this is a build-time fix only.
+
 # 2.0.1
 
 Fixes a build hook that broke every Flutter app depending on this package.
