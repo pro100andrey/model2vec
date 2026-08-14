@@ -37,6 +37,40 @@ every project on the machine shares.
   discriminating — with the previous line restored it fails naming the pub-cache
   path it built into.
 
+Also a performance pass over the native core. Embedding output is bit-identical
+up to float rounding (verified ≤ 1.5e-7 against the previous code on a real
+model); the pooling semantics are now pinned by 12 Rust unit tests.
+
+- **Model loading got measurably faster and lighter.** The unk-token id is read
+  straight off the tokenizer's model instead of serializing the entire
+  tokenizer — vocabulary included — to a JSON tree to look up one field, and
+  the weights file is memory-mapped instead of read into RAM, so parsing no
+  longer holds both the raw file and the decoded f32 table at once (for
+  `potion-multilingual-128M` that second copy alone was ~250 MB). Warm-cache
+  load of `potion-base-8M`: 31 ms → 21 ms; `potion-base-32M`: 83 ms → 52 ms.
+
+- **Batch pooling now runs in parallel** (rayon, already in the dependency tree
+  via `tokenizers`): each sentence pools into its own disjoint chunk of the one
+  flat output buffer. Single-sentence calls keep the sequential path and skip
+  the thread pool. On short-text batches the gain is invisible — tokenization
+  dominates — it shows on long texts and grows with embedding dimension.
+
+- Assorted per-call overhead removed from the encode path: sentences are no
+  longer copied into fresh `String`s before tokenization (`encode_batch_fast`
+  takes `&str`), token ids are pooled straight off the encoding instead of
+  being copied to a `Vec` for unk-filtering and truncation, and the final
+  mean-and-normalize is one multiply pass instead of two division passes.
+
+- Rust dependencies raised to current: `safetensors` 0.7 → 0.8 (no API change
+  for our usage), `ureq` 3.4, `rayon` 1.12, plus `anyhow`/`serde_json` patch
+  bumps. `hf-hub` deliberately stays on 0.5, the last `ureq`-based line: 1.0
+  is a reqwest/tokio redesign with a mandatory `hf-xet` dependency that grows
+  the dependency tree from 200 to ~350 crates, and its `rustls-tls` flavour
+  pulls `aws-lc-sys`, which needs `cmake` on every machine that builds the
+  crate — this package builds on the consumer's machine via the native-assets
+  hook, so that would become an install requirement for every user of the
+  package (the `native-tls` flavour trades that for OpenSSL headers on Linux).
+
 # 2.0.2
 
 Fixes a build hook that could never be cached, so every build of a dependent
@@ -71,7 +105,7 @@ package paid to rebuild this crate.
   success. That bug was dormant only because the filename above meant the
   parser was never reached, so fixing the filename alone would have shipped it.
   The separator is now the first `": "`. While there, the parser reads **every**
-  artifact line rather than only the first, and honours cargo's `\ ` escape so
+  artifact line rather than only the first, and honours cargo's `\` escape so
   a path containing a space stays one path.
 - **When the dep-info really is missing**, the fallback now names the crate's
   actual inputs — `native/src/`, `Cargo.lock`, `rust-toolchain.toml` and the

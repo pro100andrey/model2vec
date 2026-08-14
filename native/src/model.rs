@@ -3,6 +3,7 @@ use half::f16;
 use hf_hub::api::sync::{ApiBuilder, ApiRepo};
 use hf_hub::api::Progress;
 use hf_hub::Cache;
+use rayon::prelude::*;
 use safetensors::{tensor::Dtype, SafeTensors};
 use serde_json::Value;
 use std::borrow::Cow;
@@ -11,7 +12,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tokenizers::Tokenizer;
+use tokenizers::{ModelWrapper, Tokenizer};
 
 // --- Load progress -------------------------------------------------------
 // Only one model is ever loading at a time (the model is a process global), so
@@ -268,9 +269,16 @@ impl StaticModel {
         let files = resolve_model_files(repo_or_path, token, cache_dir, subfolder)?;
         set_phase(PHASE_PARSING);
         let tokenizer_bytes = fs::read(&files.tokenizer).context("failed to read tokenizer.json")?;
-        let model_bytes = fs::read(&files.model).context("failed to read model.safetensors")?;
         let config_bytes = fs::read(&files.config).context("failed to read config.json")?;
-        let model = Self::from_bytes(tokenizer_bytes, model_bytes, config_bytes, normalize)?;
+        // The weights file dwarfs the other two; map it instead of reading it
+        // so parsing never holds both the raw file and the decoded f32 table
+        // in memory at once.
+        let model_file = fs::File::open(&files.model).context("failed to open model.safetensors")?;
+        // SAFETY: read-only mapping of a file in the model cache, alive only
+        // for the duration of parsing. Concurrent truncation of the mapped
+        // file is the standard, accepted mmap caveat.
+        let model_bytes = unsafe { memmap2::Mmap::map(&model_file) }.context("failed to mmap model.safetensors")?;
+        let model = Self::from_bytes(tokenizer_bytes, &model_bytes[..], config_bytes, normalize)?;
         set_phase(PHASE_DONE);
         Ok(model)
     }
@@ -305,8 +313,16 @@ impl StaticModel {
         let mut lens: Vec<usize> = tokenizer.get_vocab(false).keys().map(|tk| tk.len()).collect();
         lens.sort_unstable();
         let median_token_length = lens.get(lens.len() / 2).copied().unwrap_or(1);
-        let spec: Value = serde_json::to_value(tokenizer).context("failed to serialize tokenizer")?;
-        let unk_token = spec.get("model").and_then(|m| m.get("unk_token")).and_then(Value::as_str);
+        // Read the unk token straight off the model rather than serializing the
+        // whole tokenizer (vocab included) to JSON to look up one field.
+        // Unigram stores an unk *id*, not a token, so it stays None — exactly
+        // what the old JSON lookup of "unk_token" yielded for it.
+        let unk_token: Option<&str> = match tokenizer.get_model() {
+            ModelWrapper::WordPiece(m) => Some(&m.unk_token),
+            ModelWrapper::WordLevel(m) => Some(&m.unk_token),
+            ModelWrapper::BPE(m) => m.unk_token.as_deref(),
+            ModelWrapper::Unigram(_) => None,
+        };
         let unk_token_id = if let Some(tok) = unk_token {
             let id = tokenizer.token_to_id(tok).ok_or_else(|| anyhow!("unk_token '{tok}' not found"))?;
             Some(id as usize)
@@ -331,97 +347,104 @@ impl StaticModel {
     }
 
     /// Encodes `sentences` into one flat, row-major `sentences.len() * cols`
-    /// buffer, pooling each sentence directly into the output — a single
-    /// allocation for the whole batch, with no per-sentence `Vec`.
+    /// buffer — a single allocation for the whole batch, with no per-sentence
+    /// `Vec`. Sentences within a batch are pooled in parallel: each one owns a
+    /// disjoint `cols`-sized chunk of the output.
     pub fn encode_flat(
         &self,
         sentences: &[String],
         max_length: Option<usize>,
         batch_size: usize,
     ) -> Result<Vec<f32>> {
-        let mut out = Vec::with_capacity(sentences.len() * self.cols);
-        for batch in sentences.chunks(batch_size) {
+        let dim = self.cols;
+        let mut out = vec![0.0f32; sentences.len() * dim];
+        for (batch, out_batch) in sentences
+            .chunks(batch_size)
+            .zip(out.chunks_mut(batch_size * dim))
+        {
             let truncated: Vec<&str> = batch.iter().map(|text| {
                 max_length.map(|max_tok| Self::truncate_str(text, max_tok, self.median_token_length)).unwrap_or(text.as_str())
             }).collect();
             let encodings = self.tokenizer
-                .encode_batch_fast::<String>(truncated.into_iter().map(Into::into).collect(), false)
+                .encode_batch_fast(truncated, false)
                 .map_err(|e| anyhow!("tokenization failed: {e}"))?;
-            for encoding in encodings {
-                let mut token_ids = encoding.get_ids().to_vec();
-                if let Some(unk_id) = self.unk_token_id {
-                    token_ids.retain(|&id| id as usize != unk_id);
-                }
-                if let Some(max_tok) = max_length {
-                    token_ids.truncate(max_tok);
-                }
-                self.pool_into(&token_ids, &mut out)?;
+            if encodings.len() == 1 {
+                // A lone sentence isn't worth a trip through the thread pool.
+                self.pool_into(encodings[0].get_ids(), max_length, out_batch)?;
+            } else {
+                encodings
+                    .par_iter()
+                    .zip(out_batch.par_chunks_mut(dim))
+                    .try_for_each(|(encoding, dst)| self.pool_into(encoding.get_ids(), max_length, dst))?;
             }
         }
         Ok(out)
     }
 
-    /// Mean-pools `ids` and appends the resulting `cols` floats to `out`. Empty
-    /// input contributes a zero vector.
-    fn pool_into(&self, ids: &[u32], out: &mut Vec<f32>) -> Result<()> {
-        let dim = self.cols;
-        let start = out.len();
-        out.resize(start + dim, 0.0);
-        if ids.is_empty() {
-            return Ok(());
-        }
-        let sum = &mut out[start..start + dim];
+    /// Mean-pools `ids` — skipping unk tokens, then keeping at most
+    /// `max_tokens` — into `dst`, an already-zeroed `cols`-length slice. Empty
+    /// input leaves the zero vector.
+    fn pool_into(&self, ids: &[u32], max_tokens: Option<usize>, dst: &mut [f32]) -> Result<()> {
+        let mut count = 0usize;
+        let tokens = ids
+            .iter()
+            .map(|&id| id as usize)
+            .filter(|&tok| Some(tok) != self.unk_token_id)
+            .take(max_tokens.unwrap_or(usize::MAX))
+            .inspect(|_| count += 1);
 
         match (&self.weights, &self.token_mapping) {
             (Some(weights), Some(mapping)) => {
-                for &id in ids {
-                    let tok = id as usize;
+                for tok in tokens {
                     let row_idx = mapping.get(tok).copied().unwrap_or(tok);
                     let scale = weights.get(tok).copied().unwrap_or(1.0);
-                    for (s, &v) in sum.iter_mut().zip(self.row(row_idx)?) {
+                    for (s, &v) in dst.iter_mut().zip(self.row(row_idx)?) {
                         *s += v * scale;
                     }
                 }
             }
             (Some(weights), None) => {
-                for &id in ids {
-                    let tok = id as usize;
+                for tok in tokens {
                     let scale = weights.get(tok).copied().unwrap_or(1.0);
-                    for (s, &v) in sum.iter_mut().zip(self.row(tok)?) {
+                    for (s, &v) in dst.iter_mut().zip(self.row(tok)?) {
                         *s += v * scale;
                     }
                 }
             }
             (None, Some(mapping)) => {
-                for &id in ids {
-                    let tok = id as usize;
+                for tok in tokens {
                     let row_idx = mapping.get(tok).copied().unwrap_or(tok);
-                    for (s, &v) in sum.iter_mut().zip(self.row(row_idx)?) {
+                    for (s, &v) in dst.iter_mut().zip(self.row(row_idx)?) {
                         *s += v;
                     }
                 }
             }
             (None, None) => {
-                for &id in ids {
-                    for (s, &v) in sum.iter_mut().zip(self.row(id as usize)?) {
+                for tok in tokens {
+                    for (s, &v) in dst.iter_mut().zip(self.row(tok)?) {
                         *s += v;
                     }
                 }
             }
         }
 
-        let denom = ids.len() as f32;
-        for x in sum.iter_mut() {
-            *x /= denom;
+        if count == 0 {
+            return Ok(());
         }
-        if self.normalize {
-            let norm_sq: f32 = sum.iter().map(|&v| v * v).sum();
-            if norm_sq > 1e-12 {
-                let norm = norm_sq.sqrt();
-                for x in sum.iter_mut() {
-                    *x /= norm;
-                }
-            }
+        // One scaling pass instead of two division passes. Dividing by the
+        // token count and then by the mean's norm collapses to dividing by the
+        // raw sum's norm; the near-zero guard is still evaluated against the
+        // mean's norm so its threshold keeps its old meaning.
+        let inv = 1.0 / count as f32;
+        let scale = if self.normalize {
+            let raw_sq: f32 = dst.iter().map(|&v| v * v).sum();
+            let mean_sq = raw_sq * inv * inv;
+            if mean_sq > 1e-12 { raw_sq.sqrt().recip() } else { inv }
+        } else {
+            inv
+        };
+        for x in dst.iter_mut() {
+            *x *= scale;
         }
         Ok(())
     }
@@ -465,4 +488,134 @@ fn download_model_files(repo_id: &str, token: Option<&str>, cache_dir: Option<&P
             .with_context(|| format!("could not load '{repo_id}' from HF"))
     })();
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Minimal WordLevel tokenizer: whitespace-split words looked up in a
+    /// four-entry vocab, everything else mapping to `[UNK]` (id 0).
+    const TOKENIZER_JSON: &str = r#"{
+        "version": "1.0",
+        "truncation": null,
+        "padding": null,
+        "added_tokens": [],
+        "normalizer": null,
+        "pre_tokenizer": {"type": "Whitespace"},
+        "post_processor": null,
+        "decoder": null,
+        "model": {
+            "type": "WordLevel",
+            "vocab": {"[UNK]": 0, "hello": 1, "world": 2, "foo": 3},
+            "unk_token": "[UNK]"
+        }
+    }"#;
+
+    // Rows: 0 = [UNK] (poisoned so a leak into pooling is visible),
+    // 1 = hello, 2 = world, 3 = foo. dim = 2.
+    const EMBEDDINGS: [f32; 8] = [100.0, 100.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+
+    fn model(normalize: bool, weights: Option<Vec<f32>>, mapping: Option<Vec<usize>>) -> StaticModel {
+        let tokenizer = Tokenizer::from_bytes(TOKENIZER_JSON.as_bytes()).unwrap();
+        StaticModel::from_owned(tokenizer, EMBEDDINGS.to_vec(), 4, 2, normalize, weights, mapping).unwrap()
+    }
+
+    fn encode(m: &StaticModel, texts: &[&str], max_length: Option<usize>, batch_size: usize) -> Vec<f32> {
+        let sentences: Vec<String> = texts.iter().map(|s| s.to_string()).collect();
+        m.encode_flat(&sentences, max_length, batch_size).unwrap()
+    }
+
+    fn assert_close(actual: &[f32], expected: &[f32]) {
+        assert_eq!(actual.len(), expected.len(), "length mismatch: {actual:?} vs {expected:?}");
+        for (a, e) in actual.iter().zip(expected) {
+            assert!((a - e).abs() < 1e-5, "expected {expected:?}, got {actual:?}");
+        }
+    }
+
+    #[test]
+    fn metadata_from_wordlevel_model() {
+        let m = model(false, None, None);
+        assert_eq!(m.unk_token_id, Some(0));
+        // Sorted token byte-lengths are [3, 5, 5, 5]; the median index is 2.
+        assert_eq!(m.median_token_length, 5);
+    }
+
+    #[test]
+    fn mean_pooling() {
+        let m = model(false, None, None);
+        assert_close(&encode(&m, &["hello world"], None, 32), &[2.0, 3.0]);
+    }
+
+    #[test]
+    fn unk_tokens_are_dropped() {
+        let m = model(false, None, None);
+        // "zzz" hits [UNK] (row 0 is poisoned with 100s) and must not count
+        // toward the mean either.
+        assert_close(&encode(&m, &["hello zzz world"], None, 32), &[2.0, 3.0]);
+    }
+
+    #[test]
+    fn empty_input_yields_zero_vector() {
+        let m = model(false, None, None);
+        assert_close(&encode(&m, &[""], None, 32), &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn empty_input_stays_zero_under_normalize() {
+        let m = model(true, None, None);
+        assert_close(&encode(&m, &[""], None, 32), &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn weights_scale_rows_by_token_id() {
+        let m = model(false, Some(vec![1.0, 2.0, 3.0, 4.0]), None);
+        // hello: [1,2]*2, world: [3,4]*3 -> mean [(2+9)/2, (4+12)/2].
+        assert_close(&encode(&m, &["hello world"], None, 32), &[5.5, 8.0]);
+    }
+
+    #[test]
+    fn mapping_redirects_token_to_row() {
+        let m = model(false, None, Some(vec![0, 3, 1, 2]));
+        // hello (tok 1) -> row 3 = [5,6]; world (tok 2) -> row 1 = [1,2].
+        assert_close(&encode(&m, &["hello world"], None, 32), &[3.0, 4.0]);
+    }
+
+    #[test]
+    fn weights_and_mapping_combine() {
+        let m = model(false, Some(vec![1.0, 2.0, 3.0, 4.0]), Some(vec![0, 3, 1, 2]));
+        // hello: row 3 * 2 = [10,12]; world: row 1 * 3 = [3,6] -> mean [6.5, 9].
+        assert_close(&encode(&m, &["hello world"], None, 32), &[6.5, 9.0]);
+    }
+
+    #[test]
+    fn normalized_output_has_unit_norm() {
+        let m = model(true, None, None);
+        let inv_norm = 1.0 / 5.0f32.sqrt();
+        assert_close(&encode(&m, &["hello"], None, 32), &[1.0 * inv_norm, 2.0 * inv_norm]);
+    }
+
+    #[test]
+    fn max_tokens_truncates_after_unk_removal() {
+        let m = model(false, None, None);
+        // [UNK] is filtered first, then the cap applies — so foo survives.
+        let mut dst = vec![0.0f32; 2];
+        m.pool_into(&[0, 3], Some(1), &mut dst).unwrap();
+        assert_close(&dst, &[5.0, 6.0]);
+    }
+
+    #[test]
+    fn batch_output_is_row_major_and_ordered() {
+        let m = model(false, None, None);
+        // batch_size 2 exercises the chunked path with a ragged final chunk.
+        let flat = encode(&m, &["hello", "world", "foo", "hello world", ""], None, 2);
+        assert_close(&flat, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 2.0, 3.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn out_of_range_mapping_is_a_typed_error() {
+        let m = model(false, None, Some(vec![9, 9, 9, 9]));
+        let err = m.encode_flat(&["hello".to_string()], None, 32).unwrap_err();
+        assert!(err.to_string().contains("out of range"), "unexpected error: {err}");
+    }
 }

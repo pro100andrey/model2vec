@@ -1,19 +1,22 @@
 [package]
 name = "m2v_ffi"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-anyhow = "1.0.102"
-serde_json = "1.0.150"
+anyhow = "1.0.104"
+serde_json = "1.0.151"
 tokenizers = { version = "0.23.1", default-features = false, features = ["onig"] }
-safetensors = "0.7.0"
+safetensors = "0.8.0"
 hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
-ureq = "3.3.0"
+ureq = "3.4.0"
 half = "2.7.1"
+# Already in the tree via tokenizers; used directly for parallel pooling.
+rayon = "1.12.0"
+memmap2 = "0.9.11"
 
 # Release is the profile the build hook uses. `panic = "unwind"` is left at the
 # default on purpose — the FFI boundary relies on catch_unwind to turn panics
