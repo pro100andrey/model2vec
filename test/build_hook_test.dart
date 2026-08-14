@@ -156,6 +156,64 @@ void main() {
       tags: ['integration'],
       timeout: const Timeout(Duration(minutes: 10)),
     );
+
+    /// Cargo builds into the directory the INVOKER handed out, never into the
+    /// crate's own `target/`.
+    ///
+    /// The crate lives in the pub cache, which every project on the machine
+    /// shares, so its `target/` is one build tree for all of them. The runner
+    /// tracks the artifact it was given, and macOS stamps a fresh `LC_UUID`
+    /// into every link — so a relink is a content change with no source
+    /// changed, and two consumers under different configs (`dart test` has
+    /// `linking_enabled: false`, `dart build` has `true`) invalidate each
+    /// other's hook cache merely by building. The runner deletes `output.json`
+    /// before re-running the hook, and whatever a parallel `dart test` had
+    /// already scheduled fails with `No asset with id`.
+    ///
+    /// That failure names neither this crate nor the build that caused it,
+    /// which is how it survived as "a warm-up command you have to remember".
+    /// `out_dir_shared` is unique per hook per project and the runner
+    /// serialises concurrent invocations into it, so the collision has nowhere
+    /// left to happen.
+    test(
+      'the artifact is built under out_dir_shared, not in the crate',
+      () async {
+        final result = await runHook(
+          const ['code_assets/code'],
+          codeConfig: _hostCodeConfig(),
+        );
+        expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
+
+        final decoded =
+            jsonDecode(
+                  File(p.join(work.path, 'output.json')).readAsStringSync(),
+                )
+                as Map;
+        final assets = (decoded['assets'] as List).cast<Map<String, Object?>>();
+        expect(assets, hasLength(1), reason: 'no code asset was registered');
+
+        final encoding = assets.single['encoding']! as Map<String, Object?>;
+        final file = encoding['file']! as String;
+        final shared = p.join(work.path, 'shared');
+
+        expect(
+          p.isWithin(shared, file),
+          isTrue,
+          reason:
+              "the artifact must live under the invoker's out_dir_shared "
+              '($shared), not wherever cargo defaults to: $file',
+        );
+        expect(
+          p.split(file),
+          isNot(contains('native')),
+          reason:
+              'built inside the crate — which in a real run is the pub cache, '
+              'shared by every project on the machine: $file',
+        );
+      },
+      tags: ['integration'],
+      timeout: const Timeout(Duration(minutes: 10)),
+    );
   });
 }
 

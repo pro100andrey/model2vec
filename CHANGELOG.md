@@ -1,4 +1,42 @@
 <!-- markdownlint-disable-file MD025 -->
+# 2.0.3
+
+Fixes the other half of 2.0.2: the hook stopped declaring the build tree as an
+input, but still BUILT into it — and the build tree is in the pub cache, which
+every project on the machine shares.
+
+- **Cargo now builds into the directory the invoker hands out**
+  (`out_dir_shared`), passed as `--target-dir`, instead of defaulting to
+  `<crate>/native/target`. That directory is unique per hook per project and the
+  runner serialises concurrent invocations into it, which is what it is
+  documented for: "shared output and intermediate artifacts".
+
+  The old default put one cargo build tree under
+  `~/.pub-cache/hosted/pub.dev/model2vec-*/native/target` for every consumer at
+  once. The hook runner tracks the artifact it was handed, and macOS stamps a
+  fresh `LC_UUID` into every link, so a relink is a content change even when no
+  source moved. Two consumers building under different configs — `dart test`
+  runs with `linking_enabled: false` and `dart build` with `true`, and a second
+  checkout or a Flutter workspace counts too — therefore invalidated each
+  other's hook cache merely by building.
+
+  What that looked like downstream: the runner deletes `output.json` before
+  re-running a hook, so whatever a parallel `dart test` had already scheduled
+  failed with `No asset with id 'package:model2vec/model2vec.so'`. The
+  diagnosis is hard because the failure names neither this package nor the
+  build that caused it, and re-running after a warm-up makes it disappear — it
+  had been living in a dependent repository's contributor guide as "run this
+  command first when the suite goes red", which is a workaround with a
+  documentation entry rather than a fix.
+
+  Writing into the pub cache at all is the underlying mistake; a package
+  directory there is shared, and on some setups read-only.
+
+- `test/build_hook_test.dart` pins it: the registered asset must live under the
+  invoker's `out_dir_shared`, and no path component may be `native`. Verified
+  discriminating — with the previous line restored it fails naming the pub-cache
+  path it built into.
+
 # 2.0.2
 
 Fixes a build hook that could never be cached, so every build of a dependent

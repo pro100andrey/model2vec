@@ -35,6 +35,25 @@ void main(List<String> args) async {
     final manifestPath = p.join(nativeDir, 'Cargo.toml');
     final crateName = _parseCrateName(manifestPath);
 
+    // Where cargo builds. The invoker hands out a directory for exactly this —
+    // "shared output and intermediate artifacts", unique per hook, with
+    // concurrent invocations serialised by the runner — and cargo's default of
+    // `<crate>/target` is the one place a hook must not use: the crate lives in
+    // the pub cache, which every project on the machine shares.
+    //
+    // Sharing it is not a tidiness argument, it is the cache. The runner tracks
+    // the artifact it was handed, and macOS stamps a fresh `LC_UUID` into every
+    // link, so a relink is a content change even when no source moved. Two
+    // consumers building the same crate under different configs — `dart test`
+    // (`linking_enabled: false`) and `dart build` (`true`) are enough, and a
+    // second checkout or a separate Flutter workspace does it too — therefore
+    // overwrite each other's artifact and invalidate each other's hook. The
+    // runner then deletes `output.json` and re-runs the hook, and the files a
+    // parallel `dart test` has already scheduled fail with `No asset with id`.
+    // Undiagnosable from the failing run: the build that poisons the cache is
+    // never the one that reports it.
+    final targetDir = p.join(input.outputDirectoryShared.toFilePath(), 'cargo');
+
     final codeConfig = input.config.code;
 
     // We default to release mode
@@ -84,6 +103,7 @@ void main(List<String> args) async {
         'build',
         if (buildMode == 'release') '--release',
         if (!isHost) ...['--target', targetTriple],
+        ...['--target-dir', targetDir],
       ],
       workingDirectory: nativeDir,
       environment: env,
@@ -97,8 +117,8 @@ void main(List<String> args) async {
     final libFileName = _getLibraryFileName(codeConfig.targetOS, crateName);
 
     final binaryPath = isHost
-        ? p.join(nativeDir, 'target', buildMode, libFileName)
-        : p.join(nativeDir, 'target', targetTriple, buildMode, libFileName);
+        ? p.join(targetDir, buildMode, libFileName)
+        : p.join(targetDir, targetTriple, buildMode, libFileName);
 
     if (!File(binaryPath).existsSync()) {
       throw Exception('Artifact not found at $binaryPath');
