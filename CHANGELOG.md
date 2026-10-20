@@ -1,4 +1,40 @@
 <!-- markdownlint-disable-file MD025 -->
+# 2.0.4
+
+Lets dependents move to `code_assets` 2. No code changed; the build hook works
+unchanged on both majors.
+
+- **`code_assets: '>=1.2.1 <3.0.0'`** (was `^1.2.1`). `native_toolchain_c`
+  0.19.4 and later require `code_assets` ^2.0.0, so a project that depends on
+  this package and on anything that builds through `native_toolchain_c`
+  (`sqlite3` among them) was held at `native_toolchain_c` 0.19.3 and
+  `code_assets` 1.2.1 — silently, by the solver, for the whole workspace — or
+  failed to resolve outright once something in it asked for
+  `native_toolchain_c` ^0.19.4.
+
+  The one breaking change in `code_assets` 2.0 — `OS`, `Architecture` and
+  `Sanitizer` now override `==` and `hashCode`, so they can no longer key a
+  `const` map or set — does not reach the hook: it compares them with `==` and
+  matches them in a `switch`, and keeps no constant collection keyed by them.
+  Verified on both ends of the range: the full suite (123 unit and 35
+  integration tests) and `dart build cli` of the example and the benchmark
+  pass with `code_assets` 1.2.1 + `hooks` 2.1.0 and with `code_assets` 2.1.0 +
+  `hooks` 2.2.0, and the example's bundle runs. A probe `const {OS.linux: 1}`
+  added to the hook compiles under the first and fails under the second, so
+  each run did compile the hook against the version it names.
+
+- Dev dependency **`ffigen: '>=21.0.0 <24.0.0'`** (was `^21.0.0`). ffigen 21
+  requires `code_assets` ^1.1.0 and ffigen 22 and later require ^2.0.0, so
+  with ffigen held at 21 this package's own resolution could never reach
+  `code_assets` 2: `dart pub upgrade` stayed on 1.2.1, and overriding
+  `code_assets` alone breaks `dart test`, because ffigen 21's own build hook
+  and `native_toolchain_c` 0.19.3 keep exactly such `const` maps keyed by
+  `Architecture`. With the range, either end resolves: `dart pub upgrade`
+  lands on `code_assets` 2 — so does CI, which resolves without a lock file —
+  and holding ffigen at 21.0.0 lands on 1.2.1. The bindings ffigen 21 and
+  ffigen 23 generate are byte-identical to the committed
+  `model2vec_bindings.g.dart`. Dependents never see this constraint.
+
 # 2.0.3
 
 Fixes the other half of 2.0.2: the hook stopped declaring the build tree as an
